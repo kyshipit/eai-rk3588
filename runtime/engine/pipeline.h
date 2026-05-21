@@ -6,6 +6,7 @@
 #pragma once
 #include <atomic>
 #include <chrono>
+#include <future>
 #include <functional>
 #include <memory>
 #include <thread>
@@ -22,12 +23,17 @@
 #include "viz/display_sink.h"
 #include "viz/result_overlay.h"
 
+struct SlotInferenceResult {
+    std::string slot;
+    std::string result_json;
+    AdapterSignals signals;
+};
+
 struct InferenceTask {
     int frame_id = 0;
     cv::Mat original_frame;
-    std::shared_ptr<IModelAdapter> adapter;
-    std::string result_json;
-    AdapterSignals signals;
+    std::vector<SlotInferenceResult> slot_results;
+    AdapterSignals merged_signals;
 };
 
 class Pipeline {
@@ -67,6 +73,7 @@ private:
     void RunPostprocessOnMainThread();
     bool ProcessDisplayTask(InferenceTask& task);
     void DrainPostQueue();
+    void DrainInferQueues();
     void PushQuitTasksBestEffort();
 
     ModelCoordinator& coordinator_;
@@ -83,6 +90,7 @@ private:
     BoundedQueue<InferenceTask> post_queue_;
 
     std::unique_ptr<ThreadPool> infer_pool_;
+    std::vector<std::future<void>> infer_futures_;
     std::thread pre_thread_;
     std::atomic<bool> stop_{false};
     std::atomic<bool>* external_stop_ = nullptr;
@@ -90,6 +98,11 @@ private:
     bool single_thread_ = false;
     std::chrono::steady_clock::time_point start_time_;
     int ocr_log_interval_frames_ = 30;
-    std::string last_display_model_;
+    std::string last_display_badge_;
     int frames_since_ocr_log_ = 0;
+
+    static AdapterSignals MergeSlotSignals(const std::vector<SlotInferenceResult>& slot_results);
+    static bool RunEnabledSlots(ModelCoordinator& coordinator, const cv::Mat& frame,
+                                std::vector<SlotInferenceResult>& slot_results,
+                                AdapterSignals& merged_signals);
 };

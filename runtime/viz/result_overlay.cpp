@@ -40,8 +40,28 @@ void ResultOverlay::DrawModelBadge(cv::Mat& frame, const std::string& model_name
     const int y0 = pad + ts.height;
     cv::rectangle(frame, cv::Point(pad, pad), cv::Point(pad + ts.width + pad * 2, y0 + baseline + pad),
                   cv::Scalar(0, 0, 0), cv::FILLED);
-    cv::Scalar color = (model_name == "ppocr") ? cv::Scalar(0, 255, 255) : cv::Scalar(0, 255, 0);
+    cv::Scalar color = cv::Scalar(0, 255, 0);
+    if (model_name.find("ppocr") != std::string::npos) {
+        color = cv::Scalar(0, 255, 255);
+    }
     cv::putText(frame, badge, cv::Point(pad + 4, y0), cv::FONT_HERSHEY_SIMPLEX, scale, color, thick);
+}
+
+void ResultOverlay::DrawGreetingBanner(cv::Mat& frame, const std::string& text) const {
+    if (frame.empty() || text.empty()) {
+        return;
+    }
+    const float scale = FontScaleForFrame(frame.rows) * 0.9f;
+    const int thick = LineThicknessForFrame(frame.rows);
+    int baseline = 0;
+    cv::Size ts = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, scale, thick, &baseline);
+    const int pad = 16;
+    const int y = frame.rows - pad - baseline;
+    cv::rectangle(frame, cv::Point(pad, y - ts.height - pad),
+                  cv::Point(pad + ts.width + pad * 2, y + baseline + pad / 2), cv::Scalar(0, 0, 0),
+                  cv::FILLED);
+    cv::putText(frame, text, cv::Point(pad + 4, y), cv::FONT_HERSHEY_SIMPLEX, scale, cv::Scalar(255, 200, 0),
+                thick);
 }
 
 void ResultOverlay::LogOcrResultsToTerminal(const std::string& result_json) {
@@ -74,7 +94,9 @@ void ResultOverlay::LogOcrResultsToTerminal(const std::string& result_json) {
     }
 }
 
-void ResultOverlay::Apply(cv::Mat& frame, const std::string& result_json) const {
+// 将单槽 Postprocess 行文本绘制到帧上；suppress_yolo_person 时跳过 YOLO 的 person 检测行。
+void ResultOverlay::Apply(cv::Mat& frame, const std::string& result_json,
+                          bool suppress_yolo_person) const {
     if (frame.empty() || frame.data == nullptr) {
         LogError("ResultOverlay: invalid frame buffer");
         return;
@@ -129,6 +151,10 @@ void ResultOverlay::Apply(cv::Mat& frame, const std::string& result_json) const 
         int x1, y1, x2, y2;
         float score;
         if (!(line_stream >> label >> x1 >> y1 >> x2 >> y2 >> score)) {
+            continue;
+        }
+
+        if (suppress_yolo_person && label == "person") {
             continue;
         }
 
