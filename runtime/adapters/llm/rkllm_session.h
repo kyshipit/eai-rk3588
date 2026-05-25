@@ -1,5 +1,5 @@
 /*
- * adapters/llm/rkllm_session.h — RKLLM 会话封装（init / async run / abort / destroy）。
+ * adapters/llm/rkllm_session.h — RKLLM 会话封装（init / sync run / abort / destroy）。
  */
 #pragma once
 
@@ -22,8 +22,8 @@ public:
     // 加载 .rkllm；注册 StaticCallback；chunk_fn 在推理回调里被调用。
     int Init(const std::string& model_path, int max_new_tokens, int max_context_len,
              RkllmChunkFn chunk_fn, void* user_data);
-    // 按 <|User|>…<|Assistant|> 拼接后异步生成；prompt 保存在成员 buffer。
-    int RunPromptAsync(const std::string& user_text);
+    // rkllm_run 同步推理；prompt 保存在成员 buffer，回调线程直出 stdout。
+    int RunPromptSync(const std::string& user_text);
     int Abort();
     // Abort 后等待推理结束再 destroy，避免与回调并发。
     void Shutdown();
@@ -40,7 +40,7 @@ private:
     void* chunk_user_data_ = nullptr;
     uint32_t magic_ = kMagic;
     std::string prompt_buffer_;
-    // 异步推理入参必须在 run_async 返回后仍有效，避免库侧延迟访问栈对象。
-    RKLLMInput async_input_;
-    RKLLMInferParam async_infer_param_;
+    // 推理入参保存在成员上，避免库侧延迟访问栈对象。
+    RKLLMInput run_input_;
+    RKLLMInferParam run_infer_param_;
 };

@@ -28,6 +28,7 @@ static void Distance2Bbox(const float* points_xy, int num_points,
     }
 }
 
+// 计算张量总元素数（按 attr.n_dims 累乘）。
 static int TensorElements(const rknn_tensor_attr& attr) {
     int n = 1;
     for (int i = 0; i < attr.n_dims; ++i) {
@@ -36,6 +37,7 @@ static int TensorElements(const rknn_tensor_attr& attr) {
     return n;
 }
 
+// 提取张量“高”维（兼容不同 n_dims 布局）。
 static int TensorHeight(const rknn_tensor_attr& attr) {
     if (attr.n_dims >= 4) {
         return attr.dims[2];
@@ -46,6 +48,7 @@ static int TensorHeight(const rknn_tensor_attr& attr) {
     return 1;
 }
 
+// 提取张量“宽”维（兼容不同 n_dims 布局）。
 static int TensorWidth(const rknn_tensor_attr& attr) {
     if (attr.n_dims >= 4) {
         return attr.dims[3];
@@ -56,6 +59,7 @@ static int TensorWidth(const rknn_tensor_attr& attr) {
     return 1;
 }
 
+// 按输出张量名查找下标（如 score_8 / bbox_16 / kps_32）。
 static int FindOutputByName(const scrfd_app_context_t* ctx, const char* prefix, int stride) {
     if (!ctx || !prefix) {
         return -1;
@@ -71,6 +75,7 @@ static int FindOutputByName(const scrfd_app_context_t* ctx, const char* prefix, 
     return -1;
 }
 
+// 解析每个尺度对应的 score/bbox/kps 输出下标，兼容多种导出布局。
 static bool ResolveScrfdHeadOutputs(const scrfd_app_context_t* ctx,
                                     int scale_idx,
                                     int* out_score,
@@ -122,6 +127,7 @@ int scrfd_postprocess(scrfd_app_context_t* ctx,
     std::vector<cv::Rect2f> all_boxes;
     std::vector<std::vector<cv::Point2f>> all_kps;
 
+    // 逐尺度（8/16/32）解码候选框与关键点。
     for (int idx = 0; idx < kFmc; ++idx) {
         const int stride = kStrides[idx];
         int out_score = -1;
@@ -173,6 +179,7 @@ int scrfd_postprocess(scrfd_app_context_t* ctx,
         Distance2Bbox(anchor_xy.data(), num_points, bbox_scaled.data(), 4, boxes_xyxy);
 
         const int kps_dim = 10;
+        // 过滤低分候选并收集到全局候选池。
         for (int i = 0; i < num_points; ++i) {
             if (scores[i] < conf_threshold) {
                 continue;
@@ -228,6 +235,7 @@ int scrfd_postprocess(scrfd_app_context_t* ctx,
         nms_scores.push_back(all_scores[i]);
     }
 
+    // 统一做一次 NMS，得到最终输出索引。
     std::vector<int> indices;
     cv::dnn::NMSBoxes(nms_boxes, nms_scores, conf_threshold, nms_threshold, indices);
 

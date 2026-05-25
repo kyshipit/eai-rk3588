@@ -1,3 +1,11 @@
+/*
+ * capture/camera_source.cpp
+ *
+ * 相机输入实现：
+ * - 兼容数字索引、/dev/videoX 路径与普通 URI。
+ * - 打开阶段带重试，避免设备节点刚就绪时首次 open 失败。
+ * - 读帧阶段采用 grab/retrieve，便于在 stop 时快速中断。
+ */
 #include "camera_source.h"
 #include "platform/logging.h"
 
@@ -39,6 +47,7 @@ CameraSource::CameraSource(const std::string& source, int width, int height)
     : source_(source), width_(width), height_(height) {}
 
 bool CameraSource::Open() {
+    // 摄像头/视频源打开重试：覆盖 udev 刚创建设备节点的短暂不可用窗口。
     const int kMaxRetry = 8;
     const int kRetryDelayMs = 150;
 
@@ -117,6 +126,7 @@ bool CameraSource::Open() {
 
 void CameraSource::Release() {
     if (capture_.isOpened()) {
+        // 先尝试短暂 drain，减少下次打开时底层缓冲残留导致的延迟。
         cv::Mat drain;
         for (int i = 0; i < 4; ++i) {
             if (!capture_.grab()) {
@@ -133,6 +143,7 @@ bool CameraSource::IsOpened() const {
 }
 
 bool CameraSource::ReadFrame(cv::Mat& frame, const std::atomic<bool>* stop_flag) {
+    // 双阶段读取：先 grab 再 retrieve，降低 stop 时阻塞概率。
     if (stop_flag && stop_flag->load()) {
         return false;
     }

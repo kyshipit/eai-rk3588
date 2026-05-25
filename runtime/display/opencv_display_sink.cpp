@@ -1,3 +1,10 @@
+/*
+ * display/opencv_display_sink.cpp
+ *
+ * OpenCV 显示后端：
+ * - 有 GUI 环境时创建并管理窗口。
+ * - 无 GUI 环境时自动降级为 NullDisplaySink（不显示但不中断主流程）。
+ */
 #include "display_sink.h"
 #include "platform/logging.h"
 #include <algorithm>
@@ -65,6 +72,7 @@ public:
 
 private:
     void SetupWindow(int frame_w, int frame_h) {
+        // 根据屏幕尺寸与比例限制计算窗口大小，保证竖屏设备也能稳定显示。
         if (cfg_.fullscreen) {
             window_w_ = cfg_.screen_width;
             window_h_ = cfg_.screen_height;

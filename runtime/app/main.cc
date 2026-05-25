@@ -11,15 +11,15 @@
 #include "engine/pipeline.h"
 #include "platform/logging.h"
 #include "platform/model_coordinator.h"
-#include "io/camera_source.h"
-#include "io/frame_transform.h"
-#include "viz/display_sink.h"
-#include "viz/display_layout.h"
-#include "viz/result_overlay.h"
+#include "capture/camera_source.h"
+#include "capture/frame_transform.h"
+#include "display/display_sink.h"
+#include "display/display_layout.h"
+#include "display/result_overlay.h"
 #include "adapters/yolo/yolo_adapter.h"
 #include "adapters/scrfd/scrfd_adapter.h"
 #include "adapters/llm/llm_worker.h"
-#include "utils/config_parser.h"
+#include "app/config_parser.h"
 
 #include <signal.h>
 #include <execinfo.h>
@@ -28,6 +28,7 @@
 static std::atomic<bool> g_stop_requested{false};
 static std::atomic<int> g_sigint_count{0};
 
+// 致命信号处理：打印回溯后立即退出，避免进程继续处于未定义状态。
 static void segv_handler(int sig) {
     void* bt[20];
     int bt_size = backtrace(bt, 20);
@@ -38,6 +39,7 @@ static void segv_handler(int sig) {
     _exit(128 + sig);
 }
 
+// 软停止信号处理：第一次请求优雅退出，第二次强制退出。
 static void stop_handler(int sig) {
     (void)sig;
     const int n = g_sigint_count.fetch_add(1) + 1;
@@ -50,6 +52,7 @@ static void stop_handler(int sig) {
 }
 
 int main(int argc, char** argv) {
+    // 配置路径：默认使用 config/default.yaml，允许命令行传入覆盖。
     std::string config_path = "config/default.yaml";
     if (argc == 2) {
         config_path = argv[1];
@@ -61,51 +64,78 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    std::string model_type = cfg.GetString("model.type", "yolo");
-    std::string yolo_model_path = cfg.GetString("model.yolo.path", "./model/yolov5.rknn");
-    std::string scrfd_model_path = cfg.GetString("model.scrfd.path", "./model/scrfd.rknn");
-    float scrfd_conf_th = static_cast<float>(cfg.GetInt("model.scrfd.conf_threshold_percent", 50)) / 100.0f;
-    float scrfd_nms_th = static_cast<float>(cfg.GetInt("model.scrfd.nms_threshold_percent", 50)) / 100.0f;
-    int infer_threads = cfg.GetInt("system.infer_threads", 1);
-    bool yolo_always_on = cfg.GetInt("system.slots.yolo_always_on", 1) != 0;
-    int scene_dwell_frames = cfg.GetInt("system.slots.scene_dwell_frames", 5);
-    int switch_present_threshold = cfg.GetInt("system.switch.present_threshold", 15);
-    int switch_absent_threshold = cfg.GetInt("system.switch.absent_threshold", 30);
-    bool single_thread = cfg.GetInt("system.switch.single_thread", 0) != 0;
+    // 模型类型：当前仅支持 "yolo"。
+    std::string model_type = cfg.GetString("model.type");
+    // YOLO 模型文件路径（RKNN）。
+    std::string yolo_model_path = cfg.GetString("model.yolo.path");
+    // SCRFD 模型文件路径（RKNN）。
+    std::string scrfd_model_path = cfg.GetString("model.scrfd.path");
+    // SCRFD 置信度阈值（百分比转 0~1 浮点）。
+    float scrfd_conf_th = static_cast<float>(cfg.GetInt("model.scrfd.conf_threshold_percent")) / 100.0f;
+    // SCRFD NMS 阈值（百分比转 0~1 浮点）。
+    float scrfd_nms_th = static_cast<float>(cfg.GetInt("model.scrfd.nms_threshold_percent")) / 100.0f;
+    // 推理线程数（每个启用槽位的工作线程配置）。
+    int infer_threads = cfg.GetInt("system.infer_threads");
+    // 是否始终启用 yolo 槽位（不随场景动态开关）。
+    bool yolo_always_on = cfg.GetBool("system.slots.yolo_always_on");
+    // 场景状态切换驻留帧数（防抖，避免频繁抖动切换）。
+    int scene_dwell_frames = cfg.GetInt("system.slots.scene_dwell_frames");
+    // 切换到 person_present 所需连续帧数。
+    int switch_present_threshold = cfg.GetInt("system.switch.present_threshold");
+    // 切换到 idle 所需连续帧数。
+    int switch_absent_threshold = cfg.GetInt("system.switch.absent_threshold");
+    // 是否使用单线程调度模式（调试/资源受限场景可用）。
+    bool single_thread = cfg.GetBool("system.switch.single_thread");
+    // 全局日志级别：debug/info/warn/error/fatal。
+    std::string log_level = cfg.GetString("system.log_level");
+    // NPU 核心绑定列表，例如 [0,1]。
     std::vector<int> npu_cores = cfg.GetIntArray("system.npu_cores");
-    if (npu_cores.empty()) {
-        npu_cores = {0, 1};
-    }
-    std::string input_source = cfg.GetString("input.source", "/dev/video0");
-    int input_width = cfg.GetInt("input.width", 0);
-    int input_height = cfg.GetInt("input.height", 0);
-    std::string input_rotate = cfg.GetString("input.rotate", "ccw90");
-    int yolo_person_threshold_percent = cfg.GetInt("model.yolo.person_threshold_percent", 35);
-    bool show_window = cfg.GetInt("input.show_window", 1) != 0;
-    int display_screen_w = cfg.GetInt("input.display.screen_width", 1080);
-    int display_screen_h = cfg.GetInt("input.display.screen_height", 1920);
-    int display_max_ratio_percent = cfg.GetInt("input.display.max_screen_ratio_percent", 85);
-    bool display_fullscreen = cfg.GetInt("input.display.fullscreen", 0) != 0;
-    int display_title_reserve = cfg.GetInt("input.display.title_bar_reserve_px", 56);
-    bool llm_enabled = cfg.GetBool("model.llm.enabled", false);
+    // 输入源：摄像头设备或视频文件路径。
+    std::string input_source = cfg.GetString("input.source");
+    // 采集宽度（像素）。
+    int input_width = cfg.GetInt("input.width");
+    // 采集高度（像素）。
+    int input_height = cfg.GetInt("input.height");
+    // 输入旋转：none/ccw90/cw90/180（兼容 0/90cw）。
+    std::string input_rotate = cfg.GetString("input.rotate");
+    // yolo person 类分数阈值（百分比）。
+    int yolo_person_threshold_percent = cfg.GetInt("model.yolo.person_threshold_percent");
+    // 是否显示可视化窗口（无 GUI 环境请设 false）。
+    bool show_window = cfg.GetBool("input.show_window");
+    // 显示目标屏幕宽度（像素）。
+    int display_screen_w = cfg.GetInt("input.display.screen_width");
+    // 显示目标屏幕高度（像素）。
+    int display_screen_h = cfg.GetInt("input.display.screen_height");
+    // 画面占屏最大比例（百分比）。
+    int display_max_ratio_percent = cfg.GetInt("input.display.max_screen_ratio_percent");
+    // 是否全屏显示。
+    bool display_fullscreen = cfg.GetBool("input.display.fullscreen");
+    // 标题栏保留像素（用于避免被系统栏遮挡）。
+    int display_title_reserve = cfg.GetInt("input.display.title_bar_reserve_px");
+    // 是否启用 LLM 模块。
+    bool llm_enabled = cfg.GetBool("model.llm.enabled");
     LogInfo("Main: config %s model.llm.enabled=%s", config_path.c_str(),
             llm_enabled ? "true" : "false");
-    std::string llm_model_path = cfg.GetString("model.llm.path", "./model/deepseek.rkllm");
-    int llm_max_new_tokens = cfg.GetInt("model.llm.max_new_tokens", 64);
-    int llm_max_context_len = cfg.GetInt("model.llm.max_context_len", 4096);
-    int llm_face_stable_frames = cfg.GetInt("model.llm.face_stable_frames", 5);
-    int llm_face_absent_frames = cfg.GetInt("model.llm.face_absent_frames", 10);
-    bool llm_preload_on_scrfd = cfg.GetBool("model.llm.preload_on_scrfd", true);
-    bool llm_preload_on_startup = cfg.GetBool("model.llm.preload_on_startup", true);
-    std::string llm_greeting_prompt = cfg.GetString(
-        "model.llm.greeting_prompt",
-        "请用一句简短、自然的中文向镜头前的人问好，不要超过二十个字。");
-    std::string llm_reenter_prompt = cfg.GetString(
-        "model.llm.reenter_prompt",
-        "欢迎回来，请用一句简短中文向镜头前的人问好。");
-    std::string llm_auto_greeting_text = cfg.GetString(
-        "model.llm.auto_greeting_text",
-        "您好，我是deepseek, 有什么需要可以直接和我对话");
+    // LLM 模型文件路径（.rkllm）。
+    std::string llm_model_path = cfg.GetString("model.llm.path");
+    // 单轮最大生成 token 数。
+    int llm_max_new_tokens = cfg.GetInt("model.llm.max_new_tokens");
+    // 上下文窗口长度上限。
+    int llm_max_context_len = cfg.GetInt("model.llm.max_context_len");
+    // 人脸稳定连续帧阈值（达到后打开对话门控）。
+    int llm_face_stable_frames = cfg.GetInt("model.llm.face_stable_frames");
+    // 人脸缺失连续帧阈值（达到后进入 Grace 宽限态）。
+    int llm_face_absent_frames = cfg.GetInt("model.llm.face_absent_frames");
+    // 人脸缺失后的会话宽限期（毫秒）。
+    int llm_grace_timeout_ms = cfg.GetInt("model.llm.grace_timeout_ms");
+    // 会话空闲超时（毫秒，超时回到锁定态）。
+    int llm_idle_timeout_ms = cfg.GetInt("model.llm.idle_timeout_ms");
+    // 是否在 SCRFD 激活时预加载 LLM。
+    bool llm_preload_on_scrfd = cfg.GetBool("model.llm.preload_on_scrfd");
+    // 是否程序启动后立即异步预加载 LLM。
+    bool llm_preload_on_startup = cfg.GetBool("model.llm.preload_on_startup");
+    // 自动问候语（检测到稳定人脸后输出）。
+    std::string llm_auto_greeting_text = cfg.GetString("model.llm.auto_greeting_text");
 
     std::shared_ptr<IModelAdapter> base_adapter;
     if (model_type == "yolo") {
@@ -118,6 +148,7 @@ int main(int argc, char** argv) {
     }
 
     try {
+        SetLogLevelByName(log_level);
         setvbuf(stdout, NULL, _IONBF, 0);
         setvbuf(stderr, NULL, _IONBF, 0);
         signal(SIGSEGV, segv_handler);
@@ -131,9 +162,9 @@ int main(int argc, char** argv) {
         std::shared_ptr<LlmWorker> llm_worker;
         coordinator.GetLlmGreeting().SetTriggerThreshold(llm_face_stable_frames);
         coordinator.GetLlmGreeting().SetFaceAbsentThreshold(llm_face_absent_frames);
+        coordinator.GetLlmGreeting().SetGraceTimeoutMs(llm_grace_timeout_ms);
+        coordinator.GetLlmGreeting().SetIdleTimeoutMs(llm_idle_timeout_ms);
         coordinator.GetLlmGreeting().SetPreloadOnScrfd(llm_preload_on_scrfd);
-        coordinator.GetLlmGreeting().SetGreetingPrompt(llm_greeting_prompt);
-        coordinator.GetLlmGreeting().SetReenterPrompt(llm_reenter_prompt);
         coordinator.GetLlmGreeting().SetAutoGreetingText(llm_auto_greeting_text);
         if (llm_enabled) {
             llm_worker = std::make_shared<LlmWorker>();

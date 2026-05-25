@@ -25,37 +25,39 @@ class ModelCoordinator {
 public:
     ModelCoordinator();
 
+    // 初始化默认槽位原型并立即启用。
     bool Init(const std::string& default_model_name,
               std::shared_ptr<IModelAdapter> default_adapter,
               const std::string& model_path,
               const std::vector<int>& npu_cores,
               int num_infer_threads);
 
-    bool HasActiveAdapters() const;
-
-    void RegisterModel(const std::string& name, std::shared_ptr<IModelAdapter> adapter);
+    // 注册已构造好的模型原型。
     void RegisterModel(const std::string& name, std::shared_ptr<IModelAdapter> adapter,
                        const std::string& model_path);
+    // 注册懒加载工厂。
     void RegisterFactory(const std::string& name,
                          std::function<std::shared_ptr<IModelAdapter>()> factory,
                          const std::string& model_path);
 
+    // 槽位策略配置。
     void SetSlotOptions(bool yolo_always_on);
     void SetSceneDwellFrames(int frames);
 
+    // 预热某个槽位并放入 warm 池。
     bool WarmupSlot(const std::string& name);
 
+    // 运行态查询。
     std::vector<std::pair<std::string, std::shared_ptr<IModelAdapter>>> GetEnabledSlotAdapters() const;
     std::string GetEnabledSlotsBadge() const;
-    std::string GetCurrentModelName() const;
-    std::string GetCurrentScene() const;
     bool ShouldSuppressYoloPersonDraw() const;
-
-    SharedState& GetSharedState();
+    // 获取会话门控对象。
     LlmGreeting& GetLlmGreeting();
 
+    // 设置 person 出现/消失阈值。
     void SetSwitchDebounceThresholds(int present_threshold, int absent_threshold);
 
+    // 每帧更新：信号合并、去抖、槽位切换与 LLM 门控驱动。
     void UpdateAfterFrame(const AdapterSignals& signals, const cv::Mat& frame);
 
 private:
@@ -104,7 +106,6 @@ private:
     std::string last_logged_scene_;
 
     SharedState shared_state_;
-    AdapterSignals last_signals_;
     LlmGreeting llm_greeting_;
 
     int person_present_count_ = 0;

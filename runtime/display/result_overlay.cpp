@@ -1,3 +1,11 @@
+/*
+ * display/result_overlay.cpp
+ *
+ * 检测结果叠加绘制：
+ * - DrawModelBadge：左上角模型状态标签。
+ * - DrawGreetingBanner：底部会话提示条（目前主链路主要走终端输出）。
+ * - Apply：解析标准行文本并绘制框、分数与人脸关键点。
+ */
 #include "result_overlay.h"
 #include "platform/logging.h"
 
@@ -106,6 +114,7 @@ void ResultOverlay::Apply(cv::Mat& frame, const std::string& result_json,
         cv::rectangle(frame, cv::Point(x1, y1), cv::Point(x2, y2), box_color, box_thick);
 
         if (is_face) {
+            // SCRFD 输出约定包含 5 个关键点，用于可视化验证对齐质量。
             const int kps_radius = std::max(3, box_thick + 1);
             const cv::Scalar kps_colors[5] = {
                 cv::Scalar(0, 255, 0), cv::Scalar(0, 255, 0), cv::Scalar(0, 255, 255),

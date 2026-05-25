@@ -1,44 +1,93 @@
 # runtime/config/default.yaml
+# 说明：
+# - 本文件为运行时唯一默认配置来源，main.cc 不再兜底默认值。
+# - 修改后请确保类型正确：布尔用 true/false，整数不要加引号。
+
 model:
+  # 模型主类型。当前仅支持 yolo。
   type: yolo
+
   yolo:
+    # YOLO RKNN 模型路径。
     path: ./model/yolov5.rknn
+    # person 类阈值，范围 0~100（百分比）。
     person_threshold_percent: 35
+
   scrfd:
+    # SCRFD RKNN 模型路径。
     path: ./model/scrfd.rknn
+    # 检测置信度阈值，范围 0~100（百分比）。
     conf_threshold_percent: 50
+    # NMS 阈值，范围 0~100（百分比）。
     nms_threshold_percent: 50
+
   llm:
+    # 是否启用 LLM 能力。false 时仅视觉链路运行。
     enabled: true
+    # RKLLM 模型路径（.rkllm）。
     path: ./model/deepseek-1.5b-w8a8-rk3588.rkllm
-    max_new_tokens: 64
+    # 单轮最大新 token 数；与 max_context_len 同值可避免长回答被截断。
+    max_new_tokens: 4096
+    # 上下文长度上限。
     max_context_len: 4096
+    # 程序启动后是否立即异步预加载模型（减少首次调用卡顿）。
     preload_on_startup: true
+    # SCRFD 槽位激活时是否触发预加载。
     preload_on_scrfd: true
+    # 人脸稳定连续帧阈值，达到后允许对话。
     face_stable_frames: 5
+    # 人脸丢失连续帧阈值，达到后从 Active 进入 Grace。
     face_absent_frames: 10
-    greeting_prompt: "请用一句简短、自然的中文向镜头前的人问好，不要超过二十个字。"
-    reenter_prompt: "欢迎回来，请用一句简短中文向镜头前的人问好。"
+    # Grace 宽限期（毫秒），超时后回 Locked。
+    grace_timeout_ms: 5000
+    # 会话空闲超时（毫秒），超时后回 Locked。
+    idle_timeout_ms: 60000
+    # 自动问候语（稳定识别人脸后输出一次）。
     auto_greeting_text: "您好，我是deepseek, 有什么需要可以直接和我对话"
+
 system:
+  # 日志级别：debug / info / warn / error / fatal。
+  # 板端对话场景建议 info；排查 LLM 回调细节时用 debug。
+  log_level: info
+  # 推理线程数（每个启用槽位的推理工作线程数量）。
   infer_threads: 1
+  # NPU 核心列表。RK3588 常用 [0, 1]；按板端资源调优。
   npu_cores: [0, 1]
+
   slots:
+    # true: yolo 常驻开启；false: 由场景状态机动态开关。
     yolo_always_on: true
+    # 场景切换驻留帧数（防止频繁抖动切换）。
     scene_dwell_frames: 8
+
   switch:
+    # 切换到 person_present 需要的连续判定帧数。
     present_threshold: 30
+    # 切换到 idle 需要的连续判定帧数。
     absent_threshold: 30
+    # 是否使用单线程调度（调试时可用）。
     single_thread: false
+
 input:
+  # 输入源：摄像头设备节点或视频文件路径。
   source: /dev/video-camera0
+  # 图像旋转：none / ccw90 / cw90 / 180（也兼容 0 / 90cw）。
   rotate: ccw90
+  # 采集宽度。0 表示使用设备默认分辨率。
   width: 0
+  # 采集高度。0 表示使用设备默认分辨率。
   height: 0
+  # 是否显示可视化窗口（无桌面/无显示环境建议 false）。
   show_window: true
+
   display:
+    # 目标屏幕宽度（像素）。
     screen_width: 1080
+    # 目标屏幕高度（像素）。
     screen_height: 1920
+    # 画面占屏最大比例，范围建议 10~100（百分比）。
     max_screen_ratio_percent: 85
+    # 是否全屏显示。
     fullscreen: false
+    # 标题栏预留像素，避免窗口被系统栏遮挡。
     title_bar_reserve_px: 56

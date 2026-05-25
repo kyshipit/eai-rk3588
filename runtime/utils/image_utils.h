@@ -61,10 +61,11 @@ int convert_image_with_letterbox(image_buffer_t* src_image, image_buffer_t* dst_
 /**
  * @brief Get the image size
  * 
- * @param image [in] Image
+ * @param image [in] Image（只读）
  * @return int image size
  */
-int get_image_size(image_buffer_t* image);
+// int get_image_size(image_buffer_t* image);
+int get_image_size(const image_buffer_t* image);
 
 #ifdef __cplusplus
 }  // extern "C"

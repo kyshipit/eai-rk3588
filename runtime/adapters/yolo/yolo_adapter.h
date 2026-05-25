@@ -17,7 +17,9 @@
 
 class YoloAdapter : public IModelAdapter {
 public:
+	// 构造：初始化内部上下文与缓冲状态。
 	YoloAdapter();
+	// 析构：释放 RKNN 与后处理资源。
 	~YoloAdapter() override;
 
 	// Init: 加载模型文件，初始化 RKNN 上下文，绑定指定 NPU 核心。
@@ -32,8 +34,10 @@ public:
 	std::shared_ptr<IModelAdapter> Clone() const override;
 	AdapterSignals GetAdapterSignals() const override;
 
+	// 返回最近一帧后处理结果（调试/扩展用途）。
 	const object_detect_result_list& GetLastResults() const;
 
+	// 设置 person_present 判定阈值。
 	void SetPersonScoreThreshold(float threshold);
 
 private:

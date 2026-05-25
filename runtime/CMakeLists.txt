@@ -31,10 +31,10 @@ set(RUNTIME_SRC
     engine/thread_pool.cpp
     platform/model_coordinator.cpp
     platform/llm_greeting.cpp
-    io/camera_source.cpp
-    io/frame_transform.cpp
-    viz/opencv_display_sink.cpp
-    viz/result_overlay.cpp
+    capture/camera_source.cpp
+    capture/frame_transform.cpp
+    display/opencv_display_sink.cpp
+    display/result_overlay.cpp
     adapters/yolo/yolo_adapter.cpp
     adapters/yolo/yolo_postprocess.cpp
     adapters/scrfd/scrfd_adapter.cpp

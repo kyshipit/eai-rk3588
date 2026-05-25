@@ -10,6 +10,7 @@ typedef struct {
     rknn_input_output_num io_num;
     rknn_tensor_attr* input_attrs;
     rknn_tensor_attr* output_attrs;
+    // 模型输入形状信息（供预处理与后处理使用）。
     int model_channel;
     int model_width;
     int model_height;

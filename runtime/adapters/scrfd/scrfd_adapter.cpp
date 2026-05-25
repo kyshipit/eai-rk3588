@@ -17,6 +17,7 @@ namespace {
 constexpr int kInputW = 640;
 constexpr int kInputH = 640;
 
+// 加载 SCRFD RKNN 模型并查询输入输出张量属性。
 static int InitScrfdModel(const std::string& model_path, scrfd_app_context_t* app_ctx) {
     char* model = nullptr;
     const int model_len = read_data_from_file(model_path.c_str(), &model);
@@ -75,6 +76,7 @@ static int InitScrfdModel(const std::string& model_path, scrfd_app_context_t* ap
     return 0;
 }
 
+// 释放 SCRFD RKNN 相关资源。
 static void ReleaseScrfdModel(scrfd_app_context_t* app_ctx) {
     if (app_ctx->input_attrs) {
         free(app_ctx->input_attrs);
@@ -90,6 +92,7 @@ static void ReleaseScrfdModel(scrfd_app_context_t* app_ctx) {
     }
 }
 
+// 对输入图像做 letterbox，输出 640x640 并记录反变换元信息。
 static cv::Mat LetterboxResize(const cv::Mat& src, ScrfdLetterbox& meta) {
     meta.orig_w = src.cols;
     meta.orig_h = src.rows;
@@ -132,6 +135,7 @@ ScrfdAdapter::ScrfdAdapter() {
     memset(&app_ctx_, 0, sizeof(app_ctx_));
 }
 
+// 析构时仅在 initialized 状态下释放底层资源。
 ScrfdAdapter::~ScrfdAdapter() {
     if (initialized_) {
         ReleaseScrfdModel(&app_ctx_);
@@ -139,11 +143,13 @@ ScrfdAdapter::~ScrfdAdapter() {
     }
 }
 
+// 更新后处理阈值（置信度/NMS）。
 void ScrfdAdapter::SetThresholds(float conf_threshold, float nms_threshold) {
     conf_threshold_ = conf_threshold;
     nms_threshold_ = nms_threshold;
 }
 
+// 初始化模型并准备输入缓冲；重复调用为幂等。
 int ScrfdAdapter::Init(const std::string& model_path, int npu_core_mask) {
     if (initialized_) {
         return 0;
@@ -157,6 +163,7 @@ int ScrfdAdapter::Init(const std::string& model_path, int npu_core_mask) {
     return 0;
 }
 
+// 预处理入口：执行 letterbox 并写入连续输入缓存。
 uint8_t* ScrfdAdapter::Preprocess(const cv::Mat& frame, int& out_size) {
     if (!initialized_ || frame.empty()) {
         out_size = 0;
@@ -175,6 +182,7 @@ uint8_t* ScrfdAdapter::Preprocess(const cv::Mat& frame, int& out_size) {
     return input_buf_.data();
 }
 
+// 推理入口：设置输入张量、执行模型并获取输出张量。
 int ScrfdAdapter::Inference(std::shared_ptr<void>& model_output) {
     if (!initialized_) {
         return -1;
@@ -212,6 +220,7 @@ int ScrfdAdapter::Inference(std::shared_ptr<void>& model_output) {
     return 0;
 }
 
+// 后处理入口：解码人脸框后转换为统一行文本格式。
 std::string ScrfdAdapter::Postprocess(const std::shared_ptr<void>& model_output) {
     last_faces_.clear();
     auto holder = std::static_pointer_cast<RknnOutputHolder>(model_output);
@@ -241,18 +250,21 @@ std::string ScrfdAdapter::Postprocess(const std::shared_ptr<void>& model_output)
     return out.str();
 }
 
+// 克隆适配器配置，用于按线程创建独立 runtime。
 std::shared_ptr<IModelAdapter> ScrfdAdapter::Clone() const {
     auto copy = std::make_shared<ScrfdAdapter>();
     copy->SetThresholds(conf_threshold_, nms_threshold_);
     return copy;
 }
 
+// 导出给协调器的信号：是否检测到人脸。
 AdapterSignals ScrfdAdapter::GetAdapterSignals() const {
     AdapterSignals signals;
     signals.face_detected = !last_faces_.empty();
     return signals;
 }
 
+// 读取最近一次后处理的人脸框列表。
 const std::vector<ScrfdFaceBox>& ScrfdAdapter::GetLastFaces() const {
     return last_faces_;
 }

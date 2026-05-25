@@ -6,10 +6,11 @@
 #include <iostream>
 #include <chrono>
 #include <cctype>
+#include <cerrno>
 #include <sys/select.h>
 #include <unistd.h>
 
-// 按方案 A 合并本帧各槽 GetAdapterSignals（OR），供 UpdateAfterFrame 去抖。
+// 合并本帧各槽 GetAdapterSignals（OR），供 UpdateAfterFrame 去抖。
 AdapterSignals Pipeline::MergeSlotSignals(const std::vector<SlotInferenceResult>& slot_results) {
     AdapterSignals merged;
     for (const auto& r : slot_results) {
@@ -109,27 +110,26 @@ Pipeline::~Pipeline() {
     camera_.Release();
 }
 
-void Pipeline::RegisterModel(const std::string& name, std::shared_ptr<IModelAdapter> adapter,
-                             const std::string& model_path) {
-    coordinator_.RegisterModel(name, adapter, model_path);
-}
-
 void Pipeline::RegisterFactory(const std::string& name,
                                std::function<std::shared_ptr<IModelAdapter>()> factory,
                                const std::string& model_path) {
+    // 工厂注册仅保存定义，不立即初始化，真正启用时由 ModelCoordinator 懒加载。
     coordinator_.RegisterFactory(name, std::move(factory), model_path);
 }
 
 void Pipeline::SetSwitchDebounceThresholds(int present_threshold, int absent_threshold) {
+    // 透传给协调器，统一管理 person/idle 切换阈值。
     coordinator_.SetSwitchDebounceThresholds(present_threshold, absent_threshold);
 }
 
 void Pipeline::SetExternalStopFlag(std::atomic<bool>* flag) {
+    // 允许 main 的信号处理通过外部标志触发优雅停止。
     external_stop_ = flag;
 }
 
 // 排空后处理队列，便于 Stop 时投递 quit 哨兵。
 void Pipeline::DrainPostQueue() {
+    // 无需处理内容，目标是清空积压以确保 quit 哨兵可成功入队。
     InferenceTask discarded;
     while (post_queue_.TryPop(discarded, 0)) {
     }
@@ -137,6 +137,7 @@ void Pipeline::DrainPostQueue() {
 
 // 排空各推理队列中的积压帧，避免 quit_task 因队列满无法入队。
 void Pipeline::DrainInferQueues() {
+    // 清空每个推理队列，避免 stop 时因为队列满导致退出信号丢失。
     InferenceTask discarded;
     for (auto& q : infer_queues_) {
         while (q->TryPop(discarded, 0)) {
@@ -151,6 +152,7 @@ bool Pipeline::ShouldStop() const {
 
 // 等待预处理与推理 worker 结束，再关闭显示。
 void Pipeline::JoinWorkerThreads() {
+    // 关闭顺序：先 join 线程，再 shutdown 显示，避免窗口线程竞争。
     if (pre_thread_.joinable()) {
         pre_thread_.join();
     }
@@ -170,6 +172,7 @@ void Pipeline::PushQuitTasksBestEffort() {
     InferenceTask quit_task;
     quit_task.frame_id = -1;
     const int kTimeoutMs = 500;
+    // 向每个推理队列都投递一个 quit，保证所有 worker 都能观察到退出事件。
     for (int i = 0; i < num_infer_threads_; ++i) {
         if (!infer_queues_[i]->TryPush(quit_task, kTimeoutMs)) {
             LogWarn("Pipeline::Stop: infer_queue %d quit_task not delivered (queue full)", i);
@@ -186,6 +189,7 @@ void Pipeline::Stop() {
         return;
     }
     LogInfo("Pipeline::Stop: stop requested");
+    coordinator_.GetLlmGreeting().AbortActiveGeneration();
     camera_.Release();
     PushQuitTasksBestEffort();
 }
@@ -193,10 +197,16 @@ void Pipeline::Stop() {
 // 主入口：单线程直连显示，或多线程 pre→infer→主线程 post/显示。
 void Pipeline::Run() {
     LogInfo("Pipeline::Run: begin (infer_threads=%d)", num_infer_threads_);
-    LogInfo("Pipeline: terminal input enabled, type prompt in terminal and press Enter to talk");
+    LogSystem("输入通道已就绪，输入并回车提交（是否受理取决于人脸门控）");
+    if (!::isatty(STDIN_FILENO)) {
+        LogWarn("Pipeline: stdin is not a TTY, YOU> input may be unavailable");
+    } else {
+        LogDebug("Pipeline: stdin is a TTY");
+    }
     display_.Prepare();
     LogInfo("Pipeline::Run: display prepared");
 
+    // 单线程模式用于调试；生产默认走 pre/infer/post 解耦流水线。
     if (single_thread_) {
         RunSingleThreaded();
     } else {
@@ -237,6 +247,7 @@ void Pipeline::RunSingleThreaded() {
         task.frame_id = frame_id++;
         task.original_frame = frame.clone();
         if (!RunEnabledSlots(coordinator_, frame, task.slot_results, task.merged_signals)) {
+            PumpDisplayWhenIdle();
             continue;
         }
         if (!ProcessDisplayTask(task)) {
@@ -254,14 +265,16 @@ bool Pipeline::ProcessDisplayTask(InferenceTask& task) {
         return true;
     }
 
+    // 先更新状态机再绘制，确保当前帧上的 badge 与门控状态一致。
     coordinator_.UpdateAfterFrame(task.merged_signals, task.original_frame);
 
     const std::string badge = coordinator_.GetEnabledSlotsBadge();
     if (badge != last_display_badge_) {
-        LogInfo("Pipeline: enabled slots -> %s (frame_id=%d)", badge.c_str(), task.frame_id);
+        LogDebug("Pipeline: enabled slots -> %s (frame_id=%d)", badge.c_str(), task.frame_id);
         last_display_badge_ = badge;
     }
 
+    // scrfd 在场时抑制 yolo person 框，避免双层框造成视觉噪声。
     const bool suppress_yolo_person = coordinator_.ShouldSuppressYoloPersonDraw();
     for (const auto& layer : task.slot_results) {
         const bool suppress = (layer.slot == "yolo") && suppress_yolo_person;
@@ -281,83 +294,88 @@ bool Pipeline::ProcessDisplayTask(InferenceTask& task) {
     if (count == 1) {
         LogInfo("Pipeline: first frame displayed id=%d", task.frame_id);
     }
-    if (badge.find("yolo") != std::string::npos && (count % 60 == 0)) {
-        size_t det_chars = 0;
-        for (const auto& layer : task.slot_results) {
-            if (layer.slot == "yolo") {
-                det_chars = layer.result_json.size();
-                break;
-            }
-        }
-        LogInfo("Pipeline: frame=%d person_present=%d yolo_det_bytes=%zu slots=%s",
-                task.frame_id, task.merged_signals.person_present ? 1 : 0, det_chars, badge.c_str());
-    }
-    if (count % 100 == 0) {
-        auto now = std::chrono::steady_clock::now();
-        double elapsed_s = std::chrono::duration_cast<std::chrono::duration<double>>(now - start_time_).count();
-        double fps = (elapsed_s > 0.0) ? (double)count / elapsed_s : 0.0;
-        LogInfo("Pipeline: processed %lu frames, slots=%s, FPS=%.2f",
-                (unsigned long)count, coordinator_.GetEnabledSlotsBadge().c_str(), fps);
-    }
     return true;
 }
 
+// post 队列空时泵送 stdin/OpenCV，避免无帧时窗口与 ESC 失效。
+void Pipeline::PumpDisplayWhenIdle() {
+    const int key = display_.PollKey(1);
+    if (key == 27) {
+        Stop();
+        return;
+    }
+    PollTerminalPromptInput();
+}
+
 void Pipeline::PollTerminalPromptInput() {
+    // 非阻塞轮询 stdin：主循环每帧调用，不影响视觉推理吞吐。
+    const int input_fd = STDIN_FILENO;
     fd_set rfds;
     FD_ZERO(&rfds);
-    FD_SET(STDIN_FILENO, &rfds);
+    FD_SET(input_fd, &rfds);
     timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 0;
 
-    const int ret = select(STDIN_FILENO + 1, &rfds, nullptr, nullptr, &tv);
-    if (ret <= 0 || !FD_ISSET(STDIN_FILENO, &rfds)) {
+    const int ret = select(input_fd + 1, &rfds, nullptr, nullptr, &tv);
+    if (ret <= 0 || !FD_ISSET(input_fd, &rfds)) {
         return;
     }
 
-    char ch = '\0';
-    const ssize_t n = ::read(STDIN_FILENO, &ch, 1);
+    char buf[256];
+    const ssize_t n = ::read(input_fd, buf, sizeof(buf));
     if (n <= 0) {
-        return;
-    }
-
-    if (ch == '\r' || ch == '\n') {
-        std::string line = terminal_input_buffer_;
-        terminal_input_buffer_.clear();
-        while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) {
-            line.pop_back();
-        }
-        size_t start = 0;
-        while (start < line.size() &&
-               std::isspace(static_cast<unsigned char>(line[start]))) {
-            ++start;
-        }
-        if (start > 0) {
-            line.erase(0, start);
-        }
-        if (line.empty()) {
-            return;
-        }
-
-        const bool accepted = coordinator_.GetLlmGreeting().SubmitUserPrompt(line);
-        if (accepted) {
-            LogInfo("Pipeline: terminal prompt submitted (%zu chars)", line.size());
-        } else {
-            LogInfo("Pipeline: terminal prompt rejected (gate closed)");
+        if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            LogWarn("Pipeline: prompt input read failed errno=%d", errno);
         }
         return;
     }
 
-    // 串口常见退格字符（BS/DEL）
-    if (ch == '\b' || static_cast<unsigned char>(ch) == 0x7f) {
-        if (!terminal_input_buffer_.empty()) {
-            terminal_input_buffer_.pop_back();
-        }
-        return;
-    }
+    // 行缓冲协议：读取任意字节流，遇到 CR/LF 才提交整行。
+    for (ssize_t i = 0; i < n; ++i) {
+        const char ch = buf[i];
+        if (ch == '\r' || ch == '\n') {
+            std::string line = terminal_input_buffer_;
+            terminal_input_buffer_.clear();
+            while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) {
+                line.pop_back();
+            }
+            size_t start = 0;
+            while (start < line.size() &&
+                   std::isspace(static_cast<unsigned char>(line[start]))) {
+                ++start;
+            }
+            if (start > 0) {
+                line.erase(0, start);
+            }
+            if (line.empty()) {
+                continue;
+            }
 
-    if (std::isprint(static_cast<unsigned char>(ch)) != 0 || ch == '\t') {
-        terminal_input_buffer_.push_back(ch);
+            // 先回显 YOU>，再尝试提交门控，失败会打印 rejected 调试日志。
+            LogUser("%s", line.c_str());
+            const bool accepted = coordinator_.GetLlmGreeting().SubmitUserPrompt(line);
+            if (accepted) {
+                LogDebug("Pipeline: terminal prompt submitted (%zu chars)", line.size());
+            } else {
+                LogDebug("Pipeline: terminal prompt rejected");
+            }
+            continue;
+        }
+
+        // 串口常见退格字符（BS/DEL）
+        if (ch == '\b' || static_cast<unsigned char>(ch) == 0x7f) {
+            if (!terminal_input_buffer_.empty()) {
+                terminal_input_buffer_.pop_back();
+            }
+            continue;
+        }
+
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        // 允许 UTF-8 多字节字符（>=0x80）进入输入缓冲，避免中文被错误丢弃。
+        if (ch == '\t' || uch >= 0x20) {
+            terminal_input_buffer_.push_back(ch);
+        }
     }
 }
 
@@ -384,6 +402,7 @@ void Pipeline::PreprocessLoop() {
             frame = frame.clone();
         }
 
+        // 当前实现将预处理产物送入 infer_queue[0]，由对应 worker 消费。
         const int queue_index = 0;
         InferenceTask task;
         task.frame_id = frame_id++;
@@ -403,6 +422,7 @@ void Pipeline::InferenceLoop(int thread_id) {
     const int kPushTimeoutMs = 100;
     while (!ShouldStop()) {
         InferenceTask task;
+        // 每个线程固定消费自己的队列，减少锁竞争与任务窃取抖动。
         if (!infer_queues_[thread_id]->TryPop(task, kPopTimeoutMs)) {
             continue;
         }
@@ -432,6 +452,7 @@ void Pipeline::RunPostprocessOnMainThread() {
         PollTerminalPromptInput();
         InferenceTask task;
         if (!post_queue_.TryPop(task, kPopTimeoutMs)) {
+            PumpDisplayWhenIdle();
             continue;
         }
         if (!ProcessDisplayTask(task)) {

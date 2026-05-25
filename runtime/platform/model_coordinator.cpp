@@ -7,6 +7,7 @@
 
 namespace {
 
+// 将配置中的核心编号/位掩码转换为 rknn_set_core_mask 可接受值。
 int ToRknnCoreMask(int core_cfg) {
     if (core_cfg >= 1 && core_cfg <= 4 && (core_cfg & (core_cfg - 1)) == 0) {
         return core_cfg;
@@ -21,6 +22,7 @@ int ToRknnCoreMask(int core_cfg) {
 
 ModelCoordinator::ModelCoordinator() = default;
 
+// 定义槽位展示与调度顺序，保证日志和 UI badge 稳定。
 std::vector<std::string> ModelCoordinator::OrderedSlotNames() {
     return {"yolo", "scrfd"};
 }
@@ -52,18 +54,7 @@ bool ModelCoordinator::Init(const std::string& default_model_name,
     return true;
 }
 
-bool ModelCoordinator::HasActiveAdapters() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return !enabled_slots_.empty();
-}
-
-void ModelCoordinator::RegisterModel(const std::string& name, std::shared_ptr<IModelAdapter> adapter) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (adapter && !model_pool_.count(name)) {
-        model_pool_[name] = {adapter, factory_path_map_.count(name) ? factory_path_map_[name] : ""};
-    }
-}
-
+// 注册已构造好的模型原型（直接放入模型池）。
 void ModelCoordinator::RegisterModel(const std::string& name, std::shared_ptr<IModelAdapter> adapter,
                                      const std::string& model_path) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -73,6 +64,7 @@ void ModelCoordinator::RegisterModel(const std::string& name, std::shared_ptr<IM
     }
 }
 
+// 注册懒构造工厂（按需启槽时再实例化）。
 void ModelCoordinator::RegisterFactory(const std::string& name,
                                        std::function<std::shared_ptr<IModelAdapter>()> factory,
                                        const std::string& model_path) {
@@ -82,16 +74,19 @@ void ModelCoordinator::RegisterFactory(const std::string& name,
     LogInfo("ModelCoordinator: registered factory '%s' path='%s'", name.c_str(), model_path.c_str());
 }
 
+// 设置槽位策略选项（当前主要控制 yolo 是否常驻）。
 void ModelCoordinator::SetSlotOptions(bool yolo_always_on) {
     std::lock_guard<std::mutex> lock(mutex_);
     yolo_always_on_ = yolo_always_on;
 }
 
+// 设置场景切换驻留帧数（去抖强度）。
 void ModelCoordinator::SetSceneDwellFrames(int frames) {
     std::lock_guard<std::mutex> lock(mutex_);
     scene_dwell_frames_ = frames > 0 ? frames : 1;
 }
 
+// 预热槽位：触发一次 Enable 初始化后立即转入 warm 池。
 bool ModelCoordinator::WarmupSlot(const std::string& name) {
     if (!EnableSlot(name)) {
         return false;
@@ -101,10 +96,12 @@ bool ModelCoordinator::WarmupSlot(const std::string& name) {
     return true;
 }
 
+// 判断模型是否可用（原型已存在或存在工厂可构造）。
 bool ModelCoordinator::IsModelAvailableUnlocked(const std::string& name) const {
     return model_pool_.count(name) > 0 || factory_map_.count(name) > 0;
 }
 
+// 确保模型池中有可克隆原型；若无则尝试用工厂懒加载。
 bool ModelCoordinator::EnsureModelInPoolUnlocked(const std::string& name) {
     auto pool_it = model_pool_.find(name);
     if (pool_it != model_pool_.end()) {
@@ -124,6 +121,7 @@ bool ModelCoordinator::EnsureModelInPoolUnlocked(const std::string& name) {
     return true;
 }
 
+// 根据槽位名选择 NPU 核心掩码（yolo/scrfd 可分核）。
 int ModelCoordinator::CoreMaskForSlot(const std::string& slot) const {
     int idx = (slot == "scrfd") ? 1 : 0;
     if (idx < static_cast<int>(npu_cores_.size())) {
@@ -132,6 +130,7 @@ int ModelCoordinator::CoreMaskForSlot(const std::string& slot) const {
     return ToRknnCoreMask(0);
 }
 
+// 启用槽位：优先从 warm 池恢复，否则 clone+Init 新 runtime。
 bool ModelCoordinator::EnableSlot(const std::string& name) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -143,7 +142,7 @@ bool ModelCoordinator::EnableSlot(const std::string& name) {
             slot_runtimes_[name] = std::move(warm_it->second);
             warm_runtimes_.erase(warm_it);
             enabled_slots_.insert(name);
-            LogInfo("ModelCoordinator: enabled slot '%s' (from warm pool)", name.c_str());
+            LogDebug("ModelCoordinator: enabled slot '%s' (from warm pool)", name.c_str());
             return true;
         }
     }
@@ -180,11 +179,12 @@ bool ModelCoordinator::EnableSlot(const std::string& name) {
         }
         slot_runtimes_[name] = {std::move(clone)};
         enabled_slots_.insert(name);
-        LogInfo("ModelCoordinator: enabled slot '%s' core_mask=0x%x", name.c_str(), core_mask);
+        LogDebug("ModelCoordinator: enabled slot '%s' core_mask=0x%x", name.c_str(), core_mask);
     }
     return true;
 }
 
+// 禁用槽位：不销毁 runtime，转入 warm 池以加速下次启用。
 void ModelCoordinator::DisableSlot(const std::string& name) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!enabled_slots_.count(name)) {
@@ -196,7 +196,7 @@ void ModelCoordinator::DisableSlot(const std::string& name) {
         slot_runtimes_.erase(it);
     }
     enabled_slots_.erase(name);
-    LogInfo("ModelCoordinator: disabled slot '%s' (kept warm)", name.c_str());
+    LogDebug("ModelCoordinator: disabled slot '%s' (kept warm)", name.c_str());
 }
 
 std::vector<std::pair<std::string, std::shared_ptr<IModelAdapter>>>
@@ -215,6 +215,7 @@ ModelCoordinator::GetEnabledSlotAdapters() const {
     return out;
 }
 
+// 返回可视化用的槽位徽标字符串，例如 "yolo+scrfd"。
 std::string ModelCoordinator::GetEnabledSlotsBadge() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::ostringstream oss;
@@ -232,20 +233,13 @@ std::string ModelCoordinator::GetEnabledSlotsBadge() const {
     return first ? "none" : oss.str();
 }
 
-std::string ModelCoordinator::GetCurrentModelName() const {
-    return GetEnabledSlotsBadge();
-}
-
-std::string ModelCoordinator::GetCurrentScene() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return SceneName(current_scene_);
-}
-
+// yolo 与 scrfd 同时启用时，抑制 yolo 的 person 框绘制，避免重复框干扰。
 bool ModelCoordinator::ShouldSuppressYoloPersonDraw() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return enabled_slots_.count("yolo") > 0 && enabled_slots_.count("scrfd") > 0;
 }
 
+// 场景枚举转文本。
 const char* ModelCoordinator::SceneName(CoordinatorScene scene) {
     switch (scene) {
         case CoordinatorScene::Person:
@@ -256,6 +250,7 @@ const char* ModelCoordinator::SceneName(CoordinatorScene scene) {
     }
 }
 
+// 根据去抖计数推导当前场景（person/idle）。
 CoordinatorScene ModelCoordinator::ComputeSceneUnlocked() const {
     if (person_present_count_ >= present_threshold_) {
         return CoordinatorScene::Person;
@@ -263,20 +258,19 @@ CoordinatorScene ModelCoordinator::ComputeSceneUnlocked() const {
     return CoordinatorScene::Idle;
 }
 
-SharedState& ModelCoordinator::GetSharedState() {
-    return shared_state_;
-}
-
+// 获取 LLM 门控对象引用（供 Pipeline 提交输入与每帧轮询）。
 LlmGreeting& ModelCoordinator::GetLlmGreeting() {
     return llm_greeting_;
 }
 
+// 设置 person 出现/消失阈值。
 void ModelCoordinator::SetSwitchDebounceThresholds(int present_threshold, int absent_threshold) {
     std::lock_guard<std::mutex> lock(mutex_);
     present_threshold_ = present_threshold;
     absent_threshold_ = absent_threshold;
 }
 
+// 合并本帧信号到 shared_state（OR/覆盖策略）。
 void ModelCoordinator::MergeSignalsUnlocked(const AdapterSignals& signals) {
     if (signals.person_present) {
         shared_state_.person_present = true;
@@ -290,9 +284,9 @@ void ModelCoordinator::MergeSignalsUnlocked(const AdapterSignals& signals) {
     if (!signals.scene_label.empty()) {
         shared_state_.scene_label = signals.scene_label;
     }
-    last_signals_ = signals;
 }
 
+// 根据当前场景与配置构建目标槽位计划。
 ModelCoordinator::SlotPlan ModelCoordinator::BuildSlotPlanUnlocked() {
     SlotPlan plan;
     const CoordinatorScene computed = ComputeSceneUnlocked();
@@ -311,6 +305,7 @@ ModelCoordinator::SlotPlan ModelCoordinator::BuildSlotPlanUnlocked() {
     return plan;
 }
 
+// 执行槽位计划（只做状态对齐，不做去抖计算）。
 void ModelCoordinator::ApplySlotPlan(const SlotPlan& plan) {
     auto slot_available = [this](const std::string& name) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -330,6 +325,7 @@ void ModelCoordinator::ApplySlotPlan(const SlotPlan& plan) {
     }
 }
 
+// 每帧调度入口：更新去抖状态→应用槽位计划→驱动 LLM 门控。
 void ModelCoordinator::UpdateAfterFrame(const AdapterSignals& signals, const cv::Mat& frame) {
     (void)frame;
     SlotPlan plan;
@@ -341,6 +337,7 @@ void ModelCoordinator::UpdateAfterFrame(const AdapterSignals& signals, const cv:
 
         MergeSignalsUnlocked(signals);
 
+        // person 去抖计数：出现连续计数 + 消失清零逻辑。
         if (signals.person_present) {
             person_present_count_++;
             person_absent_count_ = 0;
@@ -354,6 +351,7 @@ void ModelCoordinator::UpdateAfterFrame(const AdapterSignals& signals, const cv:
         const CoordinatorScene computed = ComputeSceneUnlocked();
         current_scene_ = computed;
         shared_state_.scene_label = SceneName(computed);
+        // scene 驻留去抖：必须持续达到 scene_dwell_frames 才真正 applied。
         if (computed != pending_scene_) {
             pending_scene_ = computed;
             scene_dwell_count_ = 0;
@@ -368,7 +366,7 @@ void ModelCoordinator::UpdateAfterFrame(const AdapterSignals& signals, const cv:
 
         const std::string scene_str = SceneName(computed);
         if (scene_str != last_logged_scene_) {
-            LogInfo("ModelCoordinator: scene -> %s (applied=%s dwell=%d/%d)",
+            LogDebug("ModelCoordinator: scene -> %s (applied=%s dwell=%d/%d)",
                     scene_str.c_str(), SceneName(applied_scene_), scene_dwell_count_,
                     scene_dwell_frames_);
             last_logged_scene_ = scene_str;

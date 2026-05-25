@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <math.h>
+#include <stdint.h>
 #include <sys/time.h>
 
 #include "im2d.h"
@@ -276,9 +277,10 @@ int write_image(const char* path, const image_buffer_t* img)
         strcmp(_ext, ".JPEG") == 0) {
         int quality = 95;
         ret = write_image_jpeg(path, quality, img);
-    } else if (strcmp(_ext, ".png") == 0 | strcmp(_ext, ".PNG") == 0) {
+    //} else if (strcmp(_ext, ".png") == 0 | strcmp(_ext, ".PNG") == 0) {
+    } else if (strcmp(_ext, ".png") == 0 || strcmp(_ext, ".PNG") == 0) {
         ret = stbi_write_png(path, width, height, channel, data, 0);
-    } else if (strcmp(_ext, ".data") == 0 | strcmp(_ext, ".DATA") == 0) {
+    } else if (strcmp(_ext, ".data") == 0 || strcmp(_ext, ".DATA") == 0) {
         int size = get_image_size(img);
         ret = write_data_to_file(path, data, size);
     } else {
@@ -466,7 +468,8 @@ static int get_rga_fmt(image_format_t fmt) {
     }
 }
 
-int get_image_size(image_buffer_t* image)
+// 计算图像缓冲区字节数；仅读取 image 元数据，不修改入参。
+int get_image_size(const image_buffer_t* image)
 {
     if (image == NULL) {
         return 0;
@@ -485,8 +488,10 @@ int get_image_size(image_buffer_t* image)
     default:
         break;
     }
+    return 0;
 }
 
+// 使用 RGA 完成裁剪/缩放/填充；失败时回退到 memset 填充目标缓冲区。
 static int convert_image_rga(image_buffer_t* src_img, image_buffer_t* dst_img, image_rect_t* src_box, image_rect_t* dst_box, char color)
 {
     int ret = 0;
@@ -622,12 +627,8 @@ static int convert_image_rga(image_buffer_t* src_img, image_buffer_t* dst_img, i
 
     if (drect.width != dstWidth || drect.height != dstHeight) {
         im_rect dst_whole_rect = {0, 0, dstWidth, dstHeight};
-        int imcolor;
-        char* p_imcolor = &imcolor;
-        p_imcolor[0] = color;
-        p_imcolor[1] = color;
-        p_imcolor[2] = color;
-        p_imcolor[3] = color;
+        const uint32_t c = (uint8_t)color;
+        int imcolor = (int)(c | (c << 8) | (c << 16) | (c << 24));
         printf("fill dst image (x y w h)=(%d %d %d %d) with color=0x%x\n",
             dst_whole_rect.x, dst_whole_rect.y, dst_whole_rect.width, dst_whole_rect.height, imcolor);
         ret_rga = imfill(rga_buf_dst, dst_whole_rect, imcolor);

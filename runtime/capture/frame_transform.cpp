@@ -1,3 +1,11 @@
+/*
+ * capture/frame_transform.cpp
+ *
+ * 帧几何处理实现：
+ * - ParseInputRotateMode：解析配置中的旋转枚举。
+ * - Apply：按模式旋转图像。
+ * - Validate：在进入推理前做基础图像合法性检查。
+ */
 #include "frame_transform.h"
 #include "platform/logging.h"
 
@@ -38,6 +46,7 @@ void FrameTransform::Apply(cv::Mat& frame) const {
 }
 
 bool FrameTransform::Validate(const cv::Mat& frame, int frame_id) const {
+    // 这里做的是推理前底线校验，错误直接打日志并丢帧，避免传入适配器崩溃。
     if (frame.empty() || frame.data == nullptr) {
         LogError("FrameTransform: frame %d is empty", frame_id);
         return false;
