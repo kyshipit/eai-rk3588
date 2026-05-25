@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 message(STATUS "cmake version ${CMAKE_VERSION}")
-project(rknn_yolov5_cam)
+project(edgeai_platform)
 
 set(TOOLCHAIN_DIR /opt/atk-dlrk3588-toolchain)
 set(CMAKE_CXX_COMPILER ${TOOLCHAIN_DIR}/bin/aarch64-buildroot-linux-gnu-g++)
@@ -43,9 +43,9 @@ set(RUNTIME_SRC
     adapters/llm/llm_worker.cpp
 )
 
-add_executable(edgeai_platform_demo ${RUNTIME_SRC})
+add_executable(edgeai_platform_app ${RUNTIME_SRC})
 
-target_link_libraries(edgeai_platform_demo
+target_link_libraries(edgeai_platform_app
     imageutils
     fileutils
     imagedrawing
@@ -57,9 +57,9 @@ target_link_libraries(edgeai_platform_demo
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-target_link_libraries(edgeai_platform_demo Threads::Threads)
+target_link_libraries(edgeai_platform_app Threads::Threads)
 
-target_include_directories(edgeai_platform_demo PRIVATE
+target_include_directories(edgeai_platform_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/yolo
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/scrfd
@@ -68,7 +68,7 @@ target_include_directories(edgeai_platform_demo PRIVATE
     ${LIBRKNNRT_INCLUDES}
 )
 
-install(TARGETS edgeai_platform_demo DESTINATION .)
+install(TARGETS edgeai_platform_app DESTINATION .)
 install(FILES ${LIBRKNNRT} DESTINATION lib)
 install(FILES ${LIBRKLLMRT} ${LIBGOMP} DESTINATION lib)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../model/coco_80_labels_list.txt DESTINATION ./model)
