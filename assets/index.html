@@ -6,35 +6,10 @@
   <title>项目文档</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
-    * { box-sizing: border-box; }
-    body { 
-      font-family: system-ui, sans-serif; 
-      max-width: 900px; 
-      margin: 0 auto;
-      padding: 2rem 1rem;
-      line-height: 1.6;
-    }
-    .lang-switch {
-      margin-bottom: 2rem;
-      display: flex;
-      gap: 0.5rem;
-    }
-    .lang-switch button {
-      padding: 0.5rem 1.2rem;
-      border: 1px solid #ccc;
-      background: #fff;
-      cursor: pointer;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .lang-switch button.active {
-      background: #2563eb;
-      color: #fff;
-      border-color: #2563eb;
-    }
-    #content {
-      padding: 10px;
-    }
+    body { font-family: system-ui; max-width: 900px; margin: 2rem auto; padding: 1rem; }
+    .lang-switch button { padding: 0.5rem 1.2rem; margin-right: 0.5rem; cursor: pointer; }
+    .lang-switch button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+    #content { margin-top: 2rem; }
   </style>
 </head>
 <body>
@@ -53,12 +28,17 @@
   async function loadDoc(lang) {
     const file = lang === 'zh' ? 'README.cn.md' : 'README.en.md';
     try {
-      const res = await fetch(file);
-      if (!res.ok) throw new Error(`Failed to load ${file}`);
+      // 加上随机参数避免缓存干扰
+      const res = await fetch(file + '?t=' + Date.now());
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
       const text = await res.text();
       content.innerHTML = marked.parse(text);
     } catch (err) {
-      content.innerHTML = `<p style="color:red;">加载失败：${err.message}</p>`;
+      content.innerHTML = `<p style="color:red;">❌ 加载失败：${err.message}<br>
+      请求文件：${file}<br>
+      请检查：<br>
+      1. 文件名大小写是否正确？<br>
+      2. 文件是否已部署？（直接访问 <a href="${file}" target="_blank">${file}</a> 看是否404）</p>`;
     }
   }
 
