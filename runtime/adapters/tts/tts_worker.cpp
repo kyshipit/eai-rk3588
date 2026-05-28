@@ -10,6 +10,7 @@
 #include "platform/logging.h"
 #include "tts_text_sanitizer.h"
 
+// 延迟加载 RKNN，由 Configure / RequestInitializeAsync 触发。
 TtsWorker::TtsWorker() = default;
 
 // 停止后台线程并释放 RKNN。

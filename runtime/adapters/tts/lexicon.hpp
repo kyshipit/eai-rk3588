@@ -9,6 +9,7 @@
 #include <sstream>
 #include <algorithm>
 
+// 按分隔符拆分一行词表记录。
 inline std::vector<std::string> split(const std::string& s, char delim) {
     std::vector<std::string> result;
     std::stringstream ss (s);
@@ -24,6 +25,7 @@ private:
     std::unordered_map<std::string, std::pair<std::vector<int>, std::vector<int>>> lexicon;
 
 public:
+    // 从 lexicon.txt 与 tokens.txt 构建音素/声调查找表。
     Lexicon(const std::string& lexicon_filename, const std::string& tokens_filename) {
         std::unordered_map<std::string, int> tokens;
         std::ifstream ifs(tokens_filename);
@@ -68,6 +70,7 @@ public:
         lexicon[" "] = std::make_pair(std::vector<int>{tokens["_"]}, std::vector<int>{0});
     }
 
+    // 按 UTF-8 字符切分，英文词在 merge_english 中合并。
     std::vector<std::string> splitEachChar(const std::string& text)
     {
         std::vector<std::string> words;
@@ -130,6 +133,7 @@ public:
         return words;
     }
 
+    // 文本 → 音素 ID 与声调 ID 序列。
     void convert(const std::string& text, std::vector<int>& phones, std::vector<int>& tones) {
         auto splitted_text = splitEachChar(text);
         auto zh_mix_en = merge_english(splitted_text);
@@ -153,6 +157,7 @@ public:
         }
     }
 
+    // 同上，并输出每词对应音素长度 word2ph（BERT 路径用）。
     void convert(const std::string& text, std::vector<int>& phones, std::vector<int>& tones, std::vector<int>& word2ph) {
         auto splitted_text = splitEachChar(text);
         auto zh_mix_en = merge_english(splitted_text);

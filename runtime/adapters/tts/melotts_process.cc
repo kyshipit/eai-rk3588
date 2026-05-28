@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <numeric>
 
+// 按真实预测长度生成 decoder 输出侧 padding mask。
 static void compute_output_padding_mask(std::vector<float> &output_padding_mask, int predicted_lengths_max_real, int predicted_lengths_max)
 {
     int index = 0;
@@ -36,6 +37,7 @@ static void compute_output_padding_mask(std::vector<float> &output_padding_mask,
                    });
 }
 
+// 由输入/输出 mask 逐元素生成 attention 有效位。
 static void compute_attn_mask(std::vector<float> &output_padding_mask, std::vector<float> &input_padding_mask,
                               std::vector<int> &attn_mask, int predicted_lengths_max, int input_padding_mask_size)
 {
@@ -50,6 +52,7 @@ static void compute_attn_mask(std::vector<float> &output_padding_mask, std::vect
                     });
 }
 
+// 将 encoder 的 log duration 转为帧级 duration（含语速 length_scale）。
 static void compute_duration(const std::vector<float> &exp_log_duration, const std::vector<float> &input_padding_mask,
                              std::vector<float> &duration, float length_scale)
 {
@@ -60,6 +63,7 @@ static void compute_duration(const std::vector<float> &exp_log_duration, const s
                    });
 }
 
+// 根据累积 duration 标记 attention 矩阵有效格。
 static void compute_valid_indices(const std::vector<float> &cum_duration, std::vector<int> &valid_indices, int input_padding_mask_size, int predicted_lengths_max)
 {
     std::vector<int> indices(valid_indices.size());
@@ -73,6 +77,7 @@ static void compute_valid_indices(const std::vector<float> &cum_duration, std::v
                   });
 }
 
+// 对 log duration 向量逐元素 exp。
 static std::vector<float> exp_vector(const std::vector<float> &vec)
 {
     std::vector<float> result(vec.size());
@@ -81,6 +86,7 @@ static std::vector<float> exp_vector(const std::vector<float> &vec)
     return result;
 }
 
+// 前缀和，用于 duration 对齐到输出时间轴。
 static std::vector<float> cumsum(const std::vector<float> &vec)
 {
     std::vector<float> result(vec.size());
@@ -88,6 +94,7 @@ static std::vector<float> cumsum(const std::vector<float> &vec)
     return result;
 }
 
+// 转置并与 attn_mask 相乘，得到送入 decoder 的 attention。
 static void transpose_mul(const std::vector<int> &input, int input_rows, int input_cols, std::vector<int> attn_mask, std::vector<float> &output)
 {
     std::vector<int> indices(input.size());
@@ -102,6 +109,7 @@ static void transpose_mul(const std::vector<int> &input, int input_rows, int inp
                   });
 }
 
+// 将 valid_indices  pad 并差分，供 transpose_mul 使用。
 static void compute_pad_indices(const std::vector<int> &valid_indices, std::vector<int> &sliced_indices, int input_length, int output_length)
 {
     int padded_length = input_length + 1;
@@ -115,6 +123,7 @@ static void compute_pad_indices(const std::vector<int> &valid_indices, std::vect
                    sliced_indices.begin(), std::minus<int>());
 }
 
+// 串联 duration、mask 与 attention 生成，供 decoder 消费。
 void middle_process(std::vector<float> log_w, std::vector<float> x_mask, std::vector<float> &attn,
                     std::vector<float> &y_mask, float speed, int &predicted_lengths_max_real)
 {

@@ -39,6 +39,7 @@ public:
     void SetBannerCallback(BannerCallback cb);
     // 绑定 TTS；FINISH 后播报本轮 reply_accumulator_。
     void SetTtsWorker(TtsWorker* tts);
+    // 是否在本轮 rkllm 结束后将累积正文提交 TTS。
     void SetTtsEnabled(bool enabled);
 
     // gate_open=false 时不提交；忙时可缓存一句待 gate 恢复后发送。

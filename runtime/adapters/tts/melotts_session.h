@@ -11,6 +11,7 @@
 #include "lexicon.hpp"
 #include "melotts_engine.h"
 
+// MeloTTS 模型与词表路径及推理参数（由 main 从 yaml 填充）。
 struct MeloTtsConfig {
     std::string encoder_path;
     std::string decoder_path;
@@ -24,13 +25,16 @@ struct MeloTtsConfig {
 
 class MeloTtsSession {
 public:
+    // 空会话，尚未加载 RKNN。
     MeloTtsSession();
+    // 析构时 Shutdown 释放资源。
     ~MeloTtsSession();
 
     // 加载 RKNN 与词表；可重复调用，失败返回 false。
     bool Init(const MeloTtsConfig& cfg);
     // 释放 RKNN 与词表。
     void Shutdown();
+    // 是否已成功 Init。
     bool IsReady() const;
 
     // 将多句文本合成为 44100Hz 单声道 PCM；失败返回空 vector。

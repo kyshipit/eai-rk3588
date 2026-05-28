@@ -27,6 +27,7 @@
 #define NOISE_SCALE 0.6 
 #define NOISE_SCALE_W 0.8
 
+// encoder 与 decoder 之间：由 log duration 与 mask 生成 attention 与输出 mask。
 void middle_process(std::vector<float> log_duration, std::vector<float> input_padding_mask, 
     std::vector<float> &attn, std::vector<float> &output_padding_mask, float speed, int &predicted_lengths_max_real);
 

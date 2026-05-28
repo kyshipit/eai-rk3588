@@ -3,7 +3,6 @@
  */
 #pragma once
 
-#include <string>
 #include <vector>
 
 class AudioPlayer {
@@ -12,7 +11,4 @@ public:
     bool PlayPcm(const std::vector<float>& pcm, int sample_rate);
     // 终止当前 gst-play-1.0 子进程（若存在）。
     void Stop();
-
-private:
-    std::string play_pid_file_;
 };

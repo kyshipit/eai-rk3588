@@ -45,20 +45,31 @@ model:
     # 自动问候语（稳定识别人脸后输出一次）。
     auto_greeting_text: "您好，我是deepseek, 有什么需要可以直接和我对话"
 
+    # MeloTTS：将终端 AI> 助手话术合成为语音（问候 + RKLLM 整轮回复）。
     tts:
-      # 是否播报 AI> 助手话术（需 llm.enabled=true）。
+      # 是否启用 TTS（需 model.llm.enabled=true）。
       enabled: true
-      # true 时不播报静态问候，仅播 RKLLM 回复。
+      # true：不播 yaml 静态问候，仅播 YOU> 后 RKLLM 整轮回复。
       skip_static_greeting: false
+      # encoder RKNN 路径（ZH_MIX_EN）。
       encoder_path: ./model/encoder-ZH_MIX_EN.rknn
+      # decoder RKNN 路径。
       decoder_path: ./model/decoder-ZH_MIX_EN.rknn
+      # 词表 lexicon.txt（与模型同目录）。
       lexicon_path: ./model/lexicon.txt
+      # 音素 token 表 tokens.txt。
       tokens_path: ./model/tokens.txt
+      # 语言标识：ZH_MIX_EN / ZH / EN 等，须与模型匹配。
       language: ZH_MIX_EN
+      # 说话人 ID（多说话人模型时选用）。
       speak_id: 1
+      # 语速倍率，>1 更快（main 当前传入 MeloTtsConfig.speed）。
       speed: 1.0
+      # 关闭 BERT 分支以减算力（与板端例程一致）。
       disable_bert: true
+      # true：进程启动后立即异步加载 Lexicon/RKNN，减少首句延迟。
       preload_on_startup: false
+      # 单段播报最大字符数，0 表示不截断。
       max_speak_chars: 0
 
 system:

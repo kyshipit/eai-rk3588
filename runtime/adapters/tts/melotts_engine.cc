@@ -21,6 +21,7 @@
 #include "easy_timer.h"
 #include "file_utils.h"
 
+// 调试打印 RKNN 动态 shape 范围。
 static void dump_input_dynamic_range(rknn_input_range *dyn_range)
 {
     std::string range_str = "";
@@ -39,6 +40,7 @@ static void dump_input_dynamic_range(rknn_input_range *dyn_range)
            dyn_range->shape_number, range_str.c_str(), get_format_string(dyn_range->fmt));
 }
 
+// 调试打印单个 tensor 的维度与量化信息。
 static void dump_tensor_attr(rknn_tensor_attr *attr)
 {
     char dims_str[100];
@@ -62,6 +64,7 @@ static void dump_tensor_attr(rknn_tensor_attr *attr)
            get_type_string(attr->type), get_qnt_type_string(attr->qnt_type), attr->zp, attr->scale);
 }
 
+// 加载 RKNN 模型文件并查询 IO tensor 属性。
 int init_melotts_model(const char *model_path, melotts_rknn_context_t *app_ctx)
 {
     int ret;
@@ -128,6 +131,7 @@ int init_melotts_model(const char *model_path, melotts_rknn_context_t *app_ctx)
     return 0;
 }
 
+// 释放 RKNN 上下文与 tensor 属性缓存。
 int release_melotts_model(melotts_rknn_context_t *app_ctx)
 {
     if (app_ctx->input_attrs != NULL)
@@ -154,6 +158,7 @@ int release_melotts_model(melotts_rknn_context_t *app_ctx)
     return 0;
 }
 
+// 填充 encoder 输入并 rknn_run，取出 logw / prior 等供 middle_process 使用。
 int inference_encoder_model(melotts_rknn_context_t *app_ctx, std::vector<int64_t> &x,
     int64_t x_lengths, int64_t speaker_id, std::vector<int64_t> &tones, std::vector<int64_t> &lang_ids,
     std::vector<float> &ja_bert, std::vector<float> &logw, std::vector<float> &x_mask,
@@ -276,6 +281,7 @@ out:
 }
 
 
+// 由 attention 与 prior 运行 decoder，输出 float 波形样本。
 int inference_decoder_model(melotts_rknn_context_t *app_ctx, std::vector<float> &attn, std::vector<float> &y_mask, std::vector<float> &g, 
     std::vector<float> &m_p, std::vector<float> &logs_p, int &predicted_lengths_max_real, std::vector<float> &output_wav_data)
 {
@@ -369,6 +375,7 @@ out:
     return ret;
 }
 
+// 单句端到端合成：encoder → middle_process → decoder。
 int inference_melotts_model(rknn_melotts_context_t *app_ctx, std::vector<int64_t> &phones,
     int64_t phone_len, std::vector<int64_t> &tones, std::vector<int64_t> &lang_ids,
     int64_t speaker_id, float speed, bool disable_bert, std::vector<float> &output_wav_data)
