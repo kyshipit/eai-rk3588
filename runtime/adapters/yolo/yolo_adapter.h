@@ -1,7 +1,7 @@
 /*
  * adapters/yolo_adapter.h
  *
- * YOLOv5 RKNN 插件；实现与 runtime/cpp/yolov5.cc、main.cc 对齐，见 adapters/yolo/README.md。
+ * YOLOv5 RKNN 插件；见 yolo_adapter.cpp 与 adapters/yolo/yolo-README.md。
  */
 #pragma once
 

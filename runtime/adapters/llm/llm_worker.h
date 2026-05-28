@@ -11,6 +11,8 @@
 
 #include "rkllm_session.h"
 
+class TtsWorker;
+
 enum class LlmPromptSource {
     FaceAppear,
     FaceReenter,
@@ -35,6 +37,9 @@ public:
     void RequestInitializeAsync();
     // 设置一轮回复完成后的文本回调。
     void SetBannerCallback(BannerCallback cb);
+    // 绑定 TTS；FINISH 后播报本轮 reply_accumulator_。
+    void SetTtsWorker(TtsWorker* tts);
+    void SetTtsEnabled(bool enabled);
 
     // gate_open=false 时不提交；忙时可缓存一句待 gate 恢复后发送。
     bool SubmitPrompt(const std::string& user_text, LlmPromptSource src, bool gate_open);
@@ -74,6 +79,9 @@ private:
     };
 
     RkllmSession session_;
+    TtsWorker* tts_ = nullptr;
+    bool tts_enabled_ = false;
+    std::string reply_accumulator_;
     BannerCallback banner_cb_;
     mutable std::mutex mutex_;
     std::string model_path_;

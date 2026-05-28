@@ -41,14 +41,24 @@ set(RUNTIME_SRC
     adapters/scrfd/scrfd_postprocess.cpp
     adapters/llm/rkllm_session.cpp
     adapters/llm/llm_worker.cpp
+    adapters/tts/melotts_engine.cc
+    adapters/tts/melotts_process.cc
+    adapters/tts/melotts_session.cpp
+    adapters/tts/tts_worker.cpp
+    adapters/tts/audio_player.cpp
+    adapters/tts/tts_text_sanitizer.cpp
 )
 
 add_executable(edgeai_platform_app ${RUNTIME_SRC})
+
+# 预编译 libsndfile.a 未带 -fPIC，PIE 链接会失败；可执行文件关闭 PIE。
+target_link_options(edgeai_platform_app PRIVATE -no-pie)
 
 target_link_libraries(edgeai_platform_app
     imageutils
     fileutils
     imagedrawing
+    audioutils
     ${OPENCV_LIBS}
     ${LIBRKNNRT}
     ${LIBRKLLMRT}
@@ -64,6 +74,9 @@ target_include_directories(edgeai_platform_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/yolo
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/scrfd
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/llm
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/tts
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/timer
     ${RKLLM_API_DIR}/include
     ${LIBRKNNRT_INCLUDES}
 )
@@ -74,5 +87,11 @@ install(FILES ${LIBRKLLMRT} ${LIBGOMP} DESTINATION lib)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../model/coco_80_labels_list.txt DESTINATION ./model)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../model/yolov5.rknn DESTINATION model OPTIONAL)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../model/scrfd.rknn DESTINATION model OPTIONAL)
+install(FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../model/encoder-ZH_MIX_EN.rknn
+    ${CMAKE_CURRENT_SOURCE_DIR}/../model/decoder-ZH_MIX_EN.rknn
+    ${CMAKE_CURRENT_SOURCE_DIR}/../model/lexicon.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/../model/tokens.txt
+    DESTINATION model OPTIONAL)
 file(GLOB CONFIG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/config/*.yaml")
 install(FILES ${CONFIG_FILES} DESTINATION config)

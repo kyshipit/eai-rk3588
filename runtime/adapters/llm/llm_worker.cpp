@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdio>
 
+#include "adapters/tts/tts_worker.h"
 #include "platform/logging.h"
 
 LlmWorker::LlmWorker() = default;
@@ -76,6 +77,18 @@ void LlmWorker::RequestInitializeAsync() {
 void LlmWorker::SetBannerCallback(BannerCallback cb) {
     std::lock_guard<std::mutex> lock(mutex_);
     banner_cb_ = std::move(cb);
+}
+
+// 绑定 TTS 播报器（可为空）。
+void LlmWorker::SetTtsWorker(TtsWorker* tts) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    tts_ = tts;
+}
+
+// 是否在本轮 rkllm 结束后播报累积正文。
+void LlmWorker::SetTtsEnabled(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    tts_enabled_ = enabled;
 }
 
 // 查询当前是否正在生成。
@@ -251,13 +264,27 @@ bool LlmWorker::RunPromptNow(const std::string& user_text, LlmPromptSource src) 
     infer_thread_ = std::thread([this, user_text]() {
         std::fprintf(stdout, "AI> ");
         std::fflush(stdout);
-        const int ret = session_.RunPromptSync(user_text);
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            reply_accumulator_.clear();
+            if (tts_enabled_) {
+                session_.SetReplyAccumulator(&reply_accumulator_);
+            } else {
+                session_.SetReplyAccumulator(nullptr);
+            }
+        }
+        const int ret = session_.RunPromptSync(user_text);
+        std::string reply;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            session_.SetReplyAccumulator(nullptr);
+            reply = std::move(reply_accumulator_);
             infer_busy_ = false;
         }
         if (ret != 0) {
             LogWarn("LlmWorker: rkllm_run failed (%d)", ret);
+        } else if (tts_ && tts_enabled_ && !reply.empty()) {
+            tts_->PlayText(reply);
         }
     });
     return true;
@@ -270,6 +297,9 @@ bool LlmWorker::SubmitPrompt(const std::string& user_text, LlmPromptSource src, 
     }
     if (user_text.empty()) {
         return false;
+    }
+    if (tts_) {
+        tts_->Cancel();
     }
     if (RunPromptNow(user_text, src)) {
         return true;
@@ -292,6 +322,9 @@ bool LlmWorker::SubmitPrompt(const std::string& user_text, LlmPromptSource src, 
 // 请求 rkllm_abort，使推理线程尽快从 RunPromptSync 返回。
 void LlmWorker::RequestAbortGeneration() {
     session_.Abort();
+    if (tts_) {
+        tts_->Cancel();
+    }
 }
 
 // 关闭 worker：先 abort 再 join 推理线程，最后 destroy 会话。

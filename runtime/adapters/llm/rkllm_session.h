@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "rkllm.h"
@@ -30,6 +31,11 @@ public:
     bool IsInitialized() const { return handle_ != nullptr; }
     bool IsRunning() const;
 
+    // TTS 开启时：NORMAL 与 printf 同步追加，供 FINISH 后播报。
+    void SetReplyAccumulator(std::string* accumulator);
+    // 取走并清空累积回复（线程安全）。
+    std::string TakeReplyAccumulator();
+
 private:
     static void StaticCallback(RKLLMResult* result, void* userdata, LLMCallState state);
 
@@ -43,4 +49,6 @@ private:
     // 推理入参保存在成员上，避免库侧延迟访问栈对象。
     RKLLMInput run_input_;
     RKLLMInferParam run_infer_param_;
+    std::string* reply_accumulator_ = nullptr;
+    std::mutex reply_mutex_;
 };

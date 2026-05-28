@@ -143,6 +143,22 @@ bool RkllmSession::IsRunning() const {
     return rkllm_is_running(handle_) == 0;
 }
 
+// 绑定可选回复累积缓冲（与终端 AI> 同源）。
+void RkllmSession::SetReplyAccumulator(std::string* accumulator) {
+    std::lock_guard<std::mutex> lock(reply_mutex_);
+    reply_accumulator_ = accumulator;
+}
+
+// 取出并清空累积回复。
+std::string RkllmSession::TakeReplyAccumulator() {
+    std::lock_guard<std::mutex> lock(reply_mutex_);
+    std::string out;
+    if (reply_accumulator_) {
+        out.swap(*reply_accumulator_);
+    }
+    return out;
+}
+
 // librkllmrt 回调：NORMAL/FINISH 直写 stdout；FINISH/ERROR 经 chunk_fn_ 通知上层。
 void RkllmSession::StaticCallback(RKLLMResult* result, void* userdata, LLMCallState state) {
     RkllmSession* self = static_cast<RkllmSession*>(userdata);
@@ -159,6 +175,10 @@ void RkllmSession::StaticCallback(RKLLMResult* result, void* userdata, LLMCallSt
         std::printf("\\run error\n");
     } else if (state == RKLLM_RUN_NORMAL && result && result->text) {
         std::printf("%s", result->text);
+        std::lock_guard<std::mutex> lock(self->reply_mutex_);
+        if (self->reply_accumulator_) {
+            *self->reply_accumulator_ += result->text;
+        }
     }
 
     if (!self->chunk_fn_) {

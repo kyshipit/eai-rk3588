@@ -19,6 +19,8 @@
 #include "adapters/yolo/yolo_adapter.h"
 #include "adapters/scrfd/scrfd_adapter.h"
 #include "adapters/llm/llm_worker.h"
+#include "adapters/tts/melotts_session.h"
+#include "adapters/tts/tts_worker.h"
 #include "app/config_parser.h"
 
 #include <signal.h>
@@ -136,6 +138,10 @@ int main(int argc, char** argv) {
     bool llm_preload_on_startup = cfg.GetBool("model.llm.preload_on_startup");
     // 自动问候语（检测到稳定人脸后输出）。
     std::string llm_auto_greeting_text = cfg.GetString("model.llm.auto_greeting_text");
+    bool llm_tts_enabled = cfg.GetBool("model.llm.tts.enabled");
+    bool llm_tts_skip_greeting = cfg.GetBool("model.llm.tts.skip_static_greeting");
+    int llm_tts_max_chars = cfg.GetInt("model.llm.tts.max_speak_chars");
+    bool llm_tts_preload = cfg.GetBool("model.llm.tts.preload_on_startup");
 
     std::shared_ptr<IModelAdapter> base_adapter;
     if (model_type == "yolo") {
@@ -160,6 +166,7 @@ int main(int argc, char** argv) {
         coordinator.SetSceneDwellFrames(scene_dwell_frames);
 
         std::shared_ptr<LlmWorker> llm_worker;
+        std::shared_ptr<TtsWorker> tts_worker;
         coordinator.GetLlmGreeting().SetTriggerThreshold(llm_face_stable_frames);
         coordinator.GetLlmGreeting().SetFaceAbsentThreshold(llm_face_absent_frames);
         coordinator.GetLlmGreeting().SetGraceTimeoutMs(llm_grace_timeout_ms);
@@ -172,6 +179,27 @@ int main(int argc, char** argv) {
             coordinator.GetLlmGreeting().SetLlmWorker(llm_worker.get());
             if (llm_preload_on_startup) {
                 llm_worker->RequestInitializeAsync();
+            }
+            if (llm_tts_enabled) {
+                MeloTtsConfig tts_cfg;
+                tts_cfg.encoder_path = cfg.GetString("model.llm.tts.encoder_path");
+                tts_cfg.decoder_path = cfg.GetString("model.llm.tts.decoder_path");
+                tts_cfg.lexicon_path = cfg.GetString("model.llm.tts.lexicon_path");
+                tts_cfg.tokens_path = cfg.GetString("model.llm.tts.tokens_path");
+                tts_cfg.language = cfg.GetString("model.llm.tts.language");
+                tts_cfg.speak_id = cfg.GetInt("model.llm.tts.speak_id");
+                tts_cfg.speed = 1.0f;
+                tts_cfg.disable_bert = cfg.GetBool("model.llm.tts.disable_bert");
+                tts_worker = std::make_shared<TtsWorker>();
+                tts_worker->Configure(tts_cfg, llm_tts_max_chars);
+                llm_worker->SetTtsWorker(tts_worker.get());
+                llm_worker->SetTtsEnabled(true);
+                coordinator.GetLlmGreeting().SetTtsWorker(tts_worker.get(),
+                                                          llm_tts_skip_greeting);
+                if (llm_tts_preload) {
+                    tts_worker->RequestInitializeAsync();
+                }
+                LogInfo("Main: TTS enabled encoder=%s", tts_cfg.encoder_path.c_str());
             }
             LogInfo("Main: LLM configured path=%s preload_on_startup=%d preload_on_scrfd=%d",
                     llm_model_path.c_str(), llm_preload_on_startup ? 1 : 0,
@@ -214,6 +242,9 @@ int main(int argc, char** argv) {
                 llm_enabled ? "on" : "off");
 
         pipeline.Run();
+        if (tts_worker) {
+            tts_worker->Shutdown();
+        }
         if (llm_worker) {
             llm_worker->Shutdown();
         }

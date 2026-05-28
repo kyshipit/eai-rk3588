@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "adapters/llm/llm_worker.h"
+#include "adapters/tts/tts_worker.h"
 #include "logging.h"
 
 namespace {
@@ -55,6 +56,12 @@ void LlmGreeting::SetLlmWorker(LlmWorker* worker) {
             SetBannerLine(line, src, is_final);
         });
     }
+}
+
+// 绑定 TTS；问候 is_final 时可选播报（与 AI> 同源）。
+void LlmGreeting::SetTtsWorker(TtsWorker* tts, bool skip_static_greeting) {
+    tts_ = tts;
+    skip_static_greeting_ = skip_static_greeting;
 }
 
 // 设置自动问候语（严格按配置覆盖，空串表示关闭自动问候）。
@@ -128,7 +135,6 @@ const char* LlmGreeting::SourceName(LlmPromptSource src) {
 
 // 统一输出会话文本：AI> 人类可读 + LLM_OUT 机器可解析。
 void LlmGreeting::SetBannerLine(const std::string& line, LlmPromptSource src, bool is_final) {
-    // 当前阶段仅终端输出，后续可在此处转接语音按键/播报链路。
     std::lock_guard<std::mutex> lock(ai_stream_mutex_);
     if (!line.empty()) {
         last_activity_ts_ = std::chrono::steady_clock::now();
@@ -154,6 +160,9 @@ void LlmGreeting::SetBannerLine(const std::string& line, LlmPromptSource src, bo
             LogDebug("LLM_OUT|src=%s|text=%s", SourceName(ai_stream_src_),
                      EscapeForMachineLog(ai_stream_text_).c_str());
         }
+        if (tts_ && !skip_static_greeting_ && !ai_stream_text_.empty()) {
+            tts_->PlayText(ai_stream_text_);
+        }
         ai_stream_text_.clear();
         ai_stream_open_ = false;
     }
@@ -163,6 +172,8 @@ void LlmGreeting::SetBannerLine(const std::string& line, LlmPromptSource src, bo
 void LlmGreeting::AbortActiveGeneration() {
     if (worker_) {
         worker_->RequestAbortGeneration();
+    } else if (tts_) {
+        tts_->Cancel();
     }
 }
 
@@ -170,6 +181,9 @@ void LlmGreeting::AbortActiveGeneration() {
 void LlmGreeting::PollDeferred() {
     if (worker_) {
         worker_->PollDeferred();
+    }
+    if (tts_) {
+        tts_->PollInitState();
     }
 }
 

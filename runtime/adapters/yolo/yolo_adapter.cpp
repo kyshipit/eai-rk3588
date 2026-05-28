@@ -1,8 +1,8 @@
 /*
  * yolo_adapter.cpp
  *
- * 与 runtime/cpp/yolov5.cc + main.cc 推理链路对齐，封装为 IModelAdapter。
- * 预处理/推理/后处理行为以 cpp 例程为准；平台额外提供 person_present 信号（SCRFD 切换）。
+ * YOLOv5 RKNN 推理封装为 IModelAdapter；后处理见 yolo_postprocess.cpp。
+ * 平台额外提供 person_present 信号供 ModelCoordinator 切换 SCRFD。
  */
 
 #include "yolo_adapter.h"

@@ -45,6 +45,22 @@ model:
     # 自动问候语（稳定识别人脸后输出一次）。
     auto_greeting_text: "您好，我是deepseek, 有什么需要可以直接和我对话"
 
+    tts:
+      # 是否播报 AI> 助手话术（需 llm.enabled=true）。
+      enabled: true
+      # true 时不播报静态问候，仅播 RKLLM 回复。
+      skip_static_greeting: false
+      encoder_path: ./model/encoder-ZH_MIX_EN.rknn
+      decoder_path: ./model/decoder-ZH_MIX_EN.rknn
+      lexicon_path: ./model/lexicon.txt
+      tokens_path: ./model/tokens.txt
+      language: ZH_MIX_EN
+      speak_id: 1
+      speed: 1.0
+      disable_bert: true
+      preload_on_startup: false
+      max_speak_chars: 0
+
 system:
   # 日志级别：debug / info / warn / error / fatal。
   # 板端对话场景建议 info；排查 LLM 回调细节时用 debug。

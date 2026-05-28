@@ -15,8 +15,8 @@
 /*
  * yolo_postprocess.cpp
  *
- * 与正点原子 runtime/cpp/postprocess.cc 保持同步（检测/NMS/标签）。
- * 平台仅通过 YoloAdapter 调用；修改逻辑时请先改 cpp 再覆盖本文件。
+ * YOLOv5 三尺度解码与 NMS（检测/NMS/标签）；仅由 YoloAdapter 调用。
+ * 修改检测逻辑时只维护 adapters/yolo/ 下本文件，勿引用已移除的 runtime/cpp/。
  */
 
 #include "yolo_postprocess.h"
