@@ -2,7 +2,7 @@
 
 # RK3588 Edge AI Inference Platform
 
-基于 Rockchip RK3588 NPU 的端侧 AI 演示平台（正点原子开发板）。摄像头取流 → NPU 视觉推理 → 人脸稳定后本地大模型对话，**全部在板端完成**。
+基于 Rockchip RK3588 NPU 的**可扩展 Edge AI Runtime**（正点原子等板型通过 yaml 适配）。当前默认参考应用：摄像头取流 → NPU 视觉 → 人脸稳定后本地大模型对话 + TTS 语音，**全部在板端完成**。
 
 主程序 **edgeai_platform_app**，由 `runtime/config/default.yaml` 驱动；运行需 `runtime/` 编译产物与 `model/` 下 RKNN / RKLLM 权重。
 
@@ -35,17 +35,20 @@
 | 采集 / 显示 | `runtime/capture/` `runtime/display/` | 读帧旋转、画框、OpenCV 窗口 |
 | 流水线 | `runtime/engine/` | 预处理 → 推理 → 主线程显示 |
 | 策略 | `runtime/platform/` | 场景切换、人脸门控、自动问候 |
-| 模型 | `runtime/adapters/` | yolo / scrfd / llm 插件，按槽启停 |
+| 模型 | `runtime/adapters/` | yolo / scrfd / llm / tts 插件，按槽启停 |
+
+详细说明：[docs/系统架构与运行逻辑.md](docs/系统架构与运行逻辑.md)
 
 ## 目录
 
 ```text
 edgeai_platform/
 ├── model/          # yolov5.rknn、scrfd.rknn、.rkllm
+├── docs/           # 平台文档（索引 docs/doc-readme.md）
 ├── assets/         # 架构图等
 ├── runtime/
 │   ├── app/ engine/ platform/ capture/ display/
-│   ├── adapters/yolo|scrfd|llm/
+│   ├── adapters/yolo|scrfd|llm|tts/
 │   └── config/default.yaml
 └── deploy/         # PC 侧转换，不参与板端运行
 ```

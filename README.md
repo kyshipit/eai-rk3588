@@ -2,7 +2,7 @@
 
 # RK3588 Edge AI Inference Platform
 
-Edge AI demo on Rockchip RK3588 NPU (ALIENTEK board). Live camera capture → NPU vision inference → on-device LLM chat after stable face detection—**everything runs on the board**.
+Edge AI **runtime platform** on Rockchip RK3588 NPU (ALIENTEK and compatible boards). The default reference app: live camera → NPU vision → on-device LLM chat and TTS after stable face detection—**everything runs on the board**.
 
 Main binary: **edgeai_platform_app**, driven by `runtime/config/default.yaml`. You need the `runtime/` build output and RKNN / RKLLM weights under `model/`.
 
@@ -37,17 +37,20 @@ Solid lines: video frames and inference results. Dashed lines: YAML config and p
 | Capture / display | `runtime/capture/` `runtime/display/` | Frame capture & rotation; overlays; OpenCV window |
 | Engine | `runtime/engine/` | Preprocess → inference → main-thread display |
 | Policy | `runtime/platform/` | Scene switching, face gate, auto greeting |
-| Models | `runtime/adapters/` | yolo / scrfd / llm plugins; slots enabled on demand |
+| Models | `runtime/adapters/` | yolo / scrfd / llm / tts plugins; slots enabled on demand |
+
+Full architecture: [docs/系统架构与运行逻辑.md](docs/系统架构与运行逻辑.md) (Chinese).
 
 ## Layout
 
 ```text
 edgeai_platform/
 ├── model/          # yolov5.rknn, scrfd.rknn, .rkllm
+├── docs/           # platform docs (see docs/doc-readme.md)
 ├── assets/         # architecture diagram, etc.
 ├── runtime/
 │   ├── app/ engine/ platform/ capture/ display/
-│   ├── adapters/yolo|scrfd|llm/
+│   ├── adapters/yolo|scrfd|llm|tts/
 │   └── config/default.yaml
 └── deploy/         # PC-side conversion; not used on board
 ```
