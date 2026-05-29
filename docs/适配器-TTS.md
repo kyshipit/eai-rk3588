@@ -1,6 +1,6 @@
 # MeloTTS 适配器
 
-> 代码：`runtime/adapters/tts/`。平台总览见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md)。集成细节见 [TTS与MeloTTS集成讨论总结.md](TTS与MeloTTS集成讨论总结.md)。
+> 代码：`runtime/adapters/tts/`。平台总览见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md)。集成细节见 [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md)。
 
 ## 作用
 

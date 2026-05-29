@@ -68,10 +68,10 @@
 | [适配器-LLM.md](适配器-LLM.md) | LLM 适配器 |
 | [适配器-TTS.md](适配器-TTS.md) | TTS 适配器 |
 | [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) | RKLLM、门控、终端 UX |
-| [TTS与MeloTTS集成讨论总结.md](TTS与MeloTTS集成讨论总结.md) | MeloTTS 配置与验收 |
+| [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) | MeloTTS 配置与验收 |
 | [YOLO与SCRFD问题排查记录.md](YOLO与SCRFD问题排查记录.md) | 路径与拓扑排障 |
 | [错误修复调试说明.md](错误修复调试说明.md) | 崩溃与退出 |
-| [讨论备忘-多槽与模型演进.md](讨论备忘-多槽与模型演进.md) | 未来模型（非验收） |
+| [模型演进与待办.md](模型演进与待办.md) | 演进路线与 backlog（非验收） |
 | [仓库与文档说明.md](仓库与文档说明.md) | 主仓与 worktree |
 
 ## License

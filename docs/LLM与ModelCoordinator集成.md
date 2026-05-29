@@ -190,7 +190,7 @@ LlmPromptSource: FaceAppear | FaceReenter | Microphone | Button | Command
 |------|------|
 | 按键输入 | `Button` source |
 | SCRFD 五点 overlay | 后处理已有坐标，绘制待接 |
-| TTS | `runtime/mms_tts/` 为独立 demo，**未编入** `edgeai_platform_app` |
+| TTS v2 按句播 | v1 已集成 MeloTTS（见 [适配器-TTS.md](适配器-TTS.md)）；增量句界 + 边生成边播未做 |
 | 对话期减视觉负载 | 可选：对话中降帧或缩槽 |
 | 日志插屏 | 状态迁移多为 `LogDebug`；FPS 等 `LogInfo` 仍可能频繁 |
 
@@ -255,7 +255,7 @@ model:
 | [系统架构与运行逻辑.md](系统架构与运行逻辑.md) | 平台总览、加载顺序 |
 | [接续开发说明.md](接续开发说明.md) | 目录、多槽、编译 |
 | [适配器-LLM.md](适配器-LLM.md) | LLM 适配器速览 |
-| [讨论备忘-多槽与模型演进.md](讨论备忘-多槽与模型演进.md) | 未来模型 |
+| [模型演进与待办.md](模型演进与待办.md) | 演进路线与 backlog |
 
 ---
 
