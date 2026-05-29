@@ -1,0 +1,6 @@
+This product includes software from the rknn_model_zoo project
+(https://github.com/airockchip/rknn_model_zoo)
+Copyright (c) 2017-2022 Rockchip Corp.
+Licensed under the Apache License, Version 2.0 (the "License");
+You may obtain a copy of the License at:
+http://www.apache.org/licenses/LICENSE-2.0
