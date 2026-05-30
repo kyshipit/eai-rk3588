@@ -7,9 +7,7 @@
 | 仓库根 [README.md](../README.md) | 项目总览、架构、快速上手 |
 | [系统架构与运行逻辑.md](系统架构与运行逻辑.md) | **平台**框架、模块加载顺序、槽关系、设计取舍（**推荐阅读**） |
 | [接续开发说明.md](接续开发说明.md) | 目录、多槽、配置、编译（板端开发必读） |
-| [仓库与文档说明.md](仓库与文档说明.md) | 唯一主仓路径；勿在 Cursor worktree 副本编辑 |
 
-**唯一仓库路径：** `/home/ky/work/edgeai_platform`
 
 ## 能力摘要
 
@@ -20,7 +18,7 @@
 - **流水线**：预处理 + 推理线程池 + 主线程显示；终端 `SYS>`/`YOU>`/`AI>` 走 stdout
 - **配置**：`config/default.yaml` 为唯一默认来源
 
-**已移除：** PPOCR / document 场景。根目录 `deploy/` 不参与板端构建。`runtime/3rdparty`、`runtime/utils` 为正点原子/RK 上游，勿随意修改。
+- **勿随意修改**： `runtime/3rdparty`、`runtime/utils` 为正点原子/RK 上游。
 
 细节见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md)、[接续开发说明.md](接续开发说明.md)、[LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md)。
 
@@ -77,7 +75,6 @@
 | [YOLO与SCRFD问题排查记录.md](YOLO与SCRFD问题排查记录.md) | 路径与拓扑排障 |
 | [错误修复调试说明.md](错误修复调试说明.md) | 崩溃与退出 |
 | [模型演进与待办.md](模型演进与待办.md) | 演进路线与 backlog（非验收） |
-| [仓库与文档说明.md](仓库与文档说明.md) | 主仓与 worktree |
 
 ## License
 

@@ -52,7 +52,7 @@ edgeai_platform/
 │   ├── app/ engine/ platform/ capture/ display/
 │   ├── adapters/yolo|scrfd|llm|tts/
 │   └── config/default.yaml
-└── deploy/         # PC-side conversion; not used on board
+└── verify/         # PC-side verification script
 ```
 
 ## Quick start

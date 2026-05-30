@@ -50,7 +50,7 @@ edgeai_platform/
 │   ├── app/ engine/ platform/ capture/ display/
 │   ├── adapters/yolo|scrfd|llm|tts/
 │   └── config/default.yaml
-└── deploy/         # PC 侧转换，不参与板端运行
+└── verify/         # PC侧rknn验证，不参与板端运行
 ```
 
 ## 上手
