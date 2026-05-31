@@ -133,27 +133,59 @@ public:
         return words;
     }
 
+    // 判断是否为纯 ASCII 字母串（用于 OOV 整词按字母回退）。
+    bool is_ascii_alpha_word(const std::string& s) const {
+        if (s.empty()) {
+            return false;
+        }
+        for (unsigned char c : s) {
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // 将一词写入 phones/tones；词表无整词时对纯英文字母按字母查表，避免 OOV 整词静音。
+    void appendLexiconToken(const std::string& token, std::vector<int>& phones,
+                            std::vector<int>& tones) {
+        std::string s = token;
+        if (s == "，") {
+            s = ",";
+        } else if (s == "。") {
+            s = ".";
+        } else if (s == "！") {
+            s = "!";
+        } else if (s == "？") {
+            s = "?";
+        }
+
+        auto it = lexicon.find(s);
+        if (it != lexicon.end()) {
+            phones.insert(phones.end(), it->second.first.begin(), it->second.first.end());
+            tones.insert(tones.end(), it->second.second.begin(), it->second.second.end());
+            return;
+        }
+        if (s.size() > 1 && is_ascii_alpha_word(s)) {
+            for (unsigned char c : s) {
+                std::string one(1, static_cast<char>(c));
+                std::transform(one.begin(), one.end(), one.begin(),
+                               [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+                appendLexiconToken(one, phones, tones);
+            }
+            return;
+        }
+        const auto& blank = lexicon.at(" ");
+        phones.insert(phones.end(), blank.first.begin(), blank.first.end());
+        tones.insert(tones.end(), blank.second.begin(), blank.second.end());
+    }
+
     // 文本 → 音素 ID 与声调 ID 序列。
     void convert(const std::string& text, std::vector<int>& phones, std::vector<int>& tones) {
         auto splitted_text = splitEachChar(text);
         auto zh_mix_en = merge_english(splitted_text);
-        for (auto c : zh_mix_en) {
-            std::string s{c};
-            if (s == "，") 
-                s = ",";
-            else if (s == "。")
-                s = ".";
-            else if (s == "！")
-                s = "!";
-            else if (s == "？")
-                s = "?";
-
-            auto phones_and_tones = lexicon[" "];
-            if (lexicon.find(s) != lexicon.end()) {
-                phones_and_tones = lexicon[s];
-            }
-            phones.insert(phones.end(), phones_and_tones.first.begin(), phones_and_tones.first.end());
-            tones.insert(tones.end(), phones_and_tones.second.begin(), phones_and_tones.second.end());
+        for (const auto& c : zh_mix_en) {
+            appendLexiconToken(c, phones, tones);
         }
     }
 
@@ -161,24 +193,10 @@ public:
     void convert(const std::string& text, std::vector<int>& phones, std::vector<int>& tones, std::vector<int>& word2ph) {
         auto splitted_text = splitEachChar(text);
         auto zh_mix_en = merge_english(splitted_text);
-        for (auto c : zh_mix_en) {
-            std::string s{c};
-            if (s == "，") 
-                s = ",";
-            else if (s == "。")
-                s = ".";
-            else if (s == "！")
-                s = "!";
-            else if (s == "？")
-                s = "?";
-
-            auto phones_and_tones = lexicon[" "];
-            if (lexicon.find(s) != lexicon.end()) {
-                phones_and_tones = lexicon[s];
-            }
-            phones.insert(phones.end(), phones_and_tones.first.begin(), phones_and_tones.first.end());
-            tones.insert(tones.end(), phones_and_tones.second.begin(), phones_and_tones.second.end());
-            word2ph.insert(word2ph.end(), (int)phones_and_tones.first.size());
+        for (const auto& c : zh_mix_en) {
+            const size_t phone_before = phones.size();
+            appendLexiconToken(c, phones, tones);
+            word2ph.push_back(static_cast<int>(phones.size() - phone_before));
         }
     }
 

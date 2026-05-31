@@ -3,6 +3,7 @@
  */
 #include "melotts_session.h"
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 
@@ -110,45 +111,78 @@ bool MeloTtsSession::IsReady() const {
     return ready_;
 }
 
+// 在会话锁保护下执行单句推理，输出对应 PCM 片段。
+bool MeloTtsSession::SynthesizeOneSentenceUnlocked(const std::string& sentence, int lang_id,
+                                                   std::vector<float>& pcm_out) {
+    if (!ready_ || !lexicon_ || sentence.empty()) {
+        return false;
+    }
+    std::string s = "_" + sentence + "_";
+    std::vector<int> phones_bef;
+    std::vector<int> tones_bef;
+    lexicon_->convert(s, phones_bef, tones_bef);
+    if (phones_bef.empty()) {
+        return false;
+    }
+    std::vector<int> lang_ids_bef(phones_bef.size(), lang_id);
+    std::vector<int64_t> phones = Intersperse(phones_bef, 0);
+    std::vector<int64_t> tones = Intersperse(tones_bef, 0);
+    std::vector<int64_t> lang_ids = Intersperse(lang_ids_bef, 0);
+    const int64_t phone_len = static_cast<int64_t>(phones.size());
+    PadOrTrim(tones, MAX_LENGTH);
+    PadOrTrim(phones, MAX_LENGTH);
+    PadOrTrim(lang_ids, MAX_LENGTH);
+    std::vector<float> output_data(PREDICTED_LENGTHS_MAX * PREDICTED_BATCH);
+    const int output_lengths = inference_melotts_model(
+        &ctx_, phones, phone_len, tones, lang_ids, cfg_.speak_id, cfg_.speed,
+        cfg_.disable_bert, output_data);
+    if (output_lengths < 0) {
+        LogWarn("MeloTtsSession: inference failed ret=%d", output_lengths);
+        return false;
+    }
+    const int actual_size = output_lengths * PREDICTED_BATCH;
+    if (actual_size <= 0 || static_cast<size_t>(actual_size) > output_data.size()) {
+        return false;
+    }
+    pcm_out.assign(output_data.begin(), output_data.begin() + actual_size);
+    return !pcm_out.empty();
+}
+
 // 分句后逐句 RKNN 推理并拼接 PCM。
 std::vector<float> MeloTtsSession::SynthesizeText(const std::string& text) {
+    std::vector<float> output_wav_data;
+    SynthesizeTextStreaming(text, [&output_wav_data](std::vector<float>&& chunk) {
+        if (!chunk.empty()) {
+            output_wav_data.insert(output_wav_data.end(), chunk.begin(), chunk.end());
+        }
+        return true;
+    });
+    return output_wav_data;
+}
+
+// 分句后逐句 RKNN 推理并实时回调 PCM，供播放线程边产边播。
+bool MeloTtsSession::SynthesizeTextStreaming(const std::string& text,
+                                             const PcmChunkCallback& on_chunk) {
+    if (!on_chunk) {
+        return false;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (!ready_ || !lexicon_ || text.empty()) {
-        return {};
+        return false;
     }
     const int lang_id = LanguageId(cfg_.language);
-    auto sentences = split_sentence(text, 40, cfg_.language);
-    std::vector<float> output_wav_data;
-    for (std::string s : sentences) {
-        if (s.empty()) {
+    const int split_min_chars = std::max(4, std::min(24, cfg_.split_min_chars));
+    auto sentences = split_sentence(text, split_min_chars, cfg_.language);
+    bool emitted = false;
+    for (const std::string& sentence : sentences) {
+        std::vector<float> chunk_pcm;
+        if (!SynthesizeOneSentenceUnlocked(sentence, lang_id, chunk_pcm)) {
             continue;
         }
-        s = "_" + s + "_";
-        std::vector<int> phones_bef;
-        std::vector<int> tones_bef;
-        lexicon_->convert(s, phones_bef, tones_bef);
-        if (phones_bef.empty()) {
-            continue;
+        emitted = true;
+        if (!on_chunk(std::move(chunk_pcm))) {
+            break;
         }
-        std::vector<int> lang_ids_bef(phones_bef.size(), lang_id);
-        std::vector<int64_t> phones = Intersperse(phones_bef, 0);
-        std::vector<int64_t> tones = Intersperse(tones_bef, 0);
-        std::vector<int64_t> lang_ids = Intersperse(lang_ids_bef, 0);
-        const int64_t phone_len = static_cast<int64_t>(phones.size());
-        PadOrTrim(tones, MAX_LENGTH);
-        PadOrTrim(phones, MAX_LENGTH);
-        PadOrTrim(lang_ids, MAX_LENGTH);
-        std::vector<float> output_data(PREDICTED_LENGTHS_MAX * PREDICTED_BATCH);
-        const int output_lengths = inference_melotts_model(
-            &ctx_, phones, phone_len, tones, lang_ids, cfg_.speak_id, cfg_.speed,
-            cfg_.disable_bert, output_data);
-        if (output_lengths < 0) {
-            LogWarn("MeloTtsSession: inference failed ret=%d", output_lengths);
-            continue;
-        }
-        const int actual_size = output_lengths * PREDICTED_BATCH;
-        output_wav_data.insert(output_wav_data.end(), output_data.begin(),
-                               output_data.begin() + actual_size);
     }
-    return output_wav_data;
+    return emitted;
 }

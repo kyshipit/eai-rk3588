@@ -159,7 +159,7 @@ std::string RkllmSession::TakeReplyAccumulator() {
     return out;
 }
 
-// librkllmrt 回调：NORMAL/FINISH 直写 stdout；FINISH/ERROR 经 chunk_fn_ 通知上层。
+// librkllmrt 回调：NORMAL/FINISH 直写 stdout；状态经 chunk_fn_ 通知上层。
 void RkllmSession::StaticCallback(RKLLMResult* result, void* userdata, LLMCallState state) {
     RkllmSession* self = static_cast<RkllmSession*>(userdata);
     if (!self || self->magic_ != kMagic) {
@@ -184,9 +184,6 @@ void RkllmSession::StaticCallback(RKLLMResult* result, void* userdata, LLMCallSt
     if (!self->chunk_fn_) {
         return;
     }
-    // NORMAL 已在上方直出，不再经 worker mutex；仅 FINISH/ERROR 通知状态机。
-    if (state == RKLLM_RUN_FINISH || state == RKLLM_RUN_ERROR) {
-        const char* chunk = (result && result->text) ? result->text : "";
-        self->chunk_fn_(chunk, state, self->chunk_user_data_);
-    }
+    const char* chunk = (result && result->text) ? result->text : "";
+    self->chunk_fn_(chunk, state, self->chunk_user_data_);
 }

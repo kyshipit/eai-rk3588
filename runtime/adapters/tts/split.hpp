@@ -1,5 +1,7 @@
 // from https://github.com/ml-inory/melotts.axera/blob/main/cpp/src/split_utils.hpp
 
+#pragma once
+
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -15,7 +17,7 @@ inline bool is_utf8_continuation_byte(unsigned char c) {
 }
 
 // 计算UTF-8字符串的字符数（非字节数）
-size_t utf8_strlen(const string& str) {
+inline size_t utf8_strlen(const string& str) {
     size_t len = 0;
     for (size_t i = 0; i < str.size(); ) {
         unsigned char c = str[i];
@@ -36,7 +38,7 @@ size_t utf8_strlen(const string& str) {
 }
 
 // 合并短句的英文版本
-vector<string> merge_short_sentences_en(const vector<string>& sens) {
+inline vector<string> merge_short_sentences_en(const vector<string>& sens) {
     vector<string> sens_out;
     for (const auto& s : sens) {
         // 如果前一个句子太短（<=2个单词），就与当前句子合并
@@ -65,7 +67,7 @@ vector<string> merge_short_sentences_en(const vector<string>& sens) {
 }
 
 // 合并短句的中文版本
-vector<string> merge_short_sentences_zh(const vector<string>& sens) {
+inline vector<string> merge_short_sentences_zh(const vector<string>& sens) {
     vector<string> sens_out;
     for (const auto& s : sens) {
         // 如果前一个句子太短（<=2个字符），就与当前句子合并
@@ -86,7 +88,7 @@ vector<string> merge_short_sentences_zh(const vector<string>& sens) {
 }
 
 // 替换字符串中的子串
-string replace_all(const string& input, const string& from, const string& to) {
+inline string replace_all(const string& input, const string& from, const string& to) {
     string result = input;
     size_t pos = 0;
     while ((pos = result.find(from, pos)) != string::npos) {
@@ -97,7 +99,7 @@ string replace_all(const string& input, const string& from, const string& to) {
 }
 
 // 分割拉丁语系文本（英文、法文、西班牙文等）
-vector<string> split_sentences_latin(const string& text, int min_len = 10) {
+inline vector<string> split_sentences_latin(const string& text, int min_len = 10) {
     string processed = text;
     
     // 替换中文标点为英文标点
@@ -111,8 +113,8 @@ vector<string> split_sentences_latin(const string& text, int min_len = 10) {
     processed = replace_all(processed, "‘", "'");
     processed = replace_all(processed, "’", "'");
     
-    // 移除特定字符
-    string chars_to_remove = "<>()[]\"«»";
+    // 移除特定字符（不删 ASCII 括号，避免括注失读）
+    string chars_to_remove = "<>[]\"«»";
     for (char c : chars_to_remove) {
         processed.erase(remove(processed.begin(), processed.end(), c), processed.end());
     }
@@ -148,7 +150,7 @@ vector<string> split_sentences_latin(const string& text, int min_len = 10) {
 }
 
 // 分割中文文本
-vector<string> split_sentences_zh(const string& text, int min_len = 10) {
+inline vector<string> split_sentences_zh(const string& text, int min_len = 10) {
     string processed = text;
     
     // 替换中文标点为英文标点
@@ -222,7 +224,7 @@ vector<string> split_sentences_zh(const string& text, int min_len = 10) {
 }
 
 // 主分割函数
-vector<string> split_sentence(const string& text, int min_len = 10, const string& language_str = "EN") {
+inline vector<string> split_sentence(const string& text, int min_len = 10, const string& language_str = "EN") {
     if (language_str == "EN" || language_str == "FR" || language_str == "ES" || language_str == "SP") {
         return split_sentences_latin(text, min_len);
     } else {

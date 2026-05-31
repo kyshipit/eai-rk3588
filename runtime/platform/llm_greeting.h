@@ -48,6 +48,10 @@ public:
 
     // 统一处理 AI 文本输出（支持单行连续流式）。
     void SetBannerLine(const std::string& line, LlmPromptSource src, bool is_final = true);
+    // 当 TTS 播放进入低水位保护时返回 true，供上层调度降载。
+    bool ShouldThrottleVisionForTts() const;
+    // 是否处于人脸对话窗口（Active/Grace），用于限制 TTS QoS 作用范围。
+    bool IsFaceDialogueActive() const;
 
 private:
     enum class SessionState {

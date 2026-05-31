@@ -45,32 +45,55 @@ model:
     # 自动问候语（稳定识别人脸后输出一次）。
     auto_greeting_text: "您好，我是deepseek, 有什么需要可以直接和我对话"
 
-    # MeloTTS：将终端 AI> 助手话术合成为语音（问候 + RKLLM 整轮回复）。
-    tts:
-      # 是否启用 TTS（需 model.llm.enabled=true）。
+  # MeloTTS：旁路播报 AI> 话术（与 llm 并列；启动时仍要求 model.llm.enabled=true）。
+  tts:
+    # 是否启用 TTS。
+    enabled: true
+    # true：不播 yaml 静态问候，仅播 YOU> 后 RKLLM 回复。
+    skip_static_greeting: false
+    # encoder RKNN 路径（ZH_MIX_EN）。
+    encoder_path: ./model/encoder-ZH_MIX_EN.rknn
+    # decoder RKNN 路径。
+    decoder_path: ./model/decoder-ZH_MIX_EN.rknn
+    # 词表 lexicon.txt（与模型同目录）。
+    lexicon_path: ./model/lexicon.txt
+    # 音素 token 表 tokens.txt。
+    tokens_path: ./model/tokens.txt
+    # 语言标识：ZH_MIX_EN / ZH / EN 等，须与模型匹配。
+    language: ZH_MIX_EN
+    # 说话人 ID（多说话人模型时选用）。
+    speak_id: 1
+    # 语速倍率，>1 更快（main 当前传入 MeloTtsConfig.speed）。
+    speed: 1.15
+    # 关闭 BERT 分支以减算力（与板端例程一致）。
+    disable_bert: true
+    # true：进程启动后立即异步加载 Lexicon/RKNN，减少首句延迟。
+    preload_on_startup: true
+    # 单段播报最大字符数，0 表示不截断。
+    max_speak_chars: 0
+    # Melo 分句最小合并字符数。
+    split_min_chars: 8
+    # 短反馈：用户输入 accepted 后立即播放预缓存 PCM（≤1s 首响）。
+    fast_ack:
       enabled: true
-      # true：不播 yaml 静态问候，仅播 YOU> 后 RKLLM 整轮回复。
-      skip_static_greeting: false
-      # encoder RKNN 路径（ZH_MIX_EN）。
-      encoder_path: ./model/encoder-ZH_MIX_EN.rknn
-      # decoder RKNN 路径。
-      decoder_path: ./model/decoder-ZH_MIX_EN.rknn
-      # 词表 lexicon.txt（与模型同目录）。
-      lexicon_path: ./model/lexicon.txt
-      # 音素 token 表 tokens.txt。
-      tokens_path: ./model/tokens.txt
-      # 语言标识：ZH_MIX_EN / ZH / EN 等，须与模型匹配。
-      language: ZH_MIX_EN
-      # 说话人 ID（多说话人模型时选用）。
-      speak_id: 1
-      # 语速倍率，>1 更快（main 当前传入 MeloTtsConfig.speed）。
-      speed: 1.0
-      # 关闭 BERT 分支以减算力（与板端例程一致）。
-      disable_bert: true
-      # true：进程启动后立即异步加载 Lexicon/RKNN，减少首句延迟。
-      preload_on_startup: false
-      # 单段播报最大字符数，0 表示不截断。
-      max_speak_chars: 0
+      text: "嗯。"
+    # 正式回答规划：语言感知切分，禁止英文单词级合成。
+    planner:
+      zh_min_chars: 8
+      zh_max_chars: 15
+      en_min_words: 4
+      en_max_words: 8
+      fallback_timeout_ms: 600
+    # 播放低水位保护策略：在 TTS 断粮风险高时临时降视觉负载（优先关 yolo）。
+    qos:
+      # 总开关：false 时不做 TTS 驱动的视觉降载。
+      enable_visual_throttle: true
+      # PCM 队列片段数 <= low 时记录低水位；人脸对话 TTS 活跃期会整轮保护。
+      low_watermark_chunks: 1
+      # PCM 队列片段数 >= high 时解除低水位锁存（用于日志/诊断）。
+      high_watermark_chunks: 3
+      # 正式回答首段开播前至少缓存的 PCM 片段数；FastAck 已出声时可设为 1。
+      min_start_pcm_chunks: 1
 
 system:
   # 日志级别：debug / info / warn / error / fatal。

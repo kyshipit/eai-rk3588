@@ -20,7 +20,7 @@ public:
     RkllmSession(const RkllmSession&) = delete;
     RkllmSession& operator=(const RkllmSession&) = delete;
 
-    // 加载 .rkllm；注册 StaticCallback；chunk_fn 在推理回调里被调用。
+    // 加载 .rkllm；注册 StaticCallback；chunk_fn 在推理回调里被调用（NORMAL/FINISH/ERROR）。
     int Init(const std::string& model_path, int max_new_tokens, int max_context_len,
              RkllmChunkFn chunk_fn, void* user_data);
     // rkllm_run 同步推理；prompt 保存在成员 buffer，回调线程直出 stdout。
@@ -31,7 +31,7 @@ public:
     bool IsInitialized() const { return handle_ != nullptr; }
     bool IsRunning() const;
 
-    // TTS 开启时：NORMAL 与 printf 同步追加，供 FINISH 后播报。
+    // TTS 开启时：NORMAL 与 printf 同步追加，供流式/FINISH 播报。
     void SetReplyAccumulator(std::string* accumulator);
     // 取走并清空累积回复（线程安全）。
     std::string TakeReplyAccumulator();

@@ -47,6 +47,8 @@ set(RUNTIME_SRC
     adapters/tts/tts_worker.cpp
     adapters/tts/audio_player.cpp
     adapters/tts/tts_text_sanitizer.cpp
+    adapters/tts/tts_ingress.cpp
+    adapters/tts/tts_planner.cpp
 )
 
 add_executable(edgeai_platform_app ${RUNTIME_SRC})

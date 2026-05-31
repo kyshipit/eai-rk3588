@@ -39,6 +39,9 @@ bool Pipeline::RunEnabledSlots(ModelCoordinator& coordinator, const cv::Mat& fra
         if (!entry.second) {
             continue;
         }
+        if (entry.first == "yolo" && coordinator.ShouldSkipYoloForDialogueTts()) {
+            continue;
+        }
         int input_size = 0;
         if (entry.second->Preprocess(frame, input_size) == nullptr || input_size <= 0) {
             continue;

@@ -86,6 +86,12 @@ void ModelCoordinator::SetSceneDwellFrames(int frames) {
     scene_dwell_frames_ = frames > 0 ? frames : 1;
 }
 
+// 设置 TTS 播报低水位保护时是否允许临时视觉降载。
+void ModelCoordinator::SetTtsVisualThrottleEnabled(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    tts_visual_throttle_enabled_ = enabled;
+}
+
 // 预热槽位：触发一次 Enable 初始化后立即转入 warm 池。
 bool ModelCoordinator::WarmupSlot(const std::string& name) {
     if (!EnableSlot(name)) {
@@ -239,6 +245,13 @@ bool ModelCoordinator::ShouldSuppressYoloPersonDraw() const {
     return enabled_slots_.count("yolo") > 0 && enabled_slots_.count("scrfd") > 0;
 }
 
+// 人脸对话 TTS 活跃时只跳过 yolo 推理，不关闭槽位，避免扰动 scene/门控状态机。
+bool ModelCoordinator::ShouldSkipYoloForDialogueTts() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return tts_visual_throttle_enabled_ && applied_scene_ == CoordinatorScene::Person &&
+           enabled_slots_.count("scrfd") > 0 && llm_greeting_.ShouldThrottleVisionForTts();
+}
+
 // 场景枚举转文本。
 const char* ModelCoordinator::SceneName(CoordinatorScene scene) {
     switch (scene) {
@@ -299,8 +312,13 @@ ModelCoordinator::SlotPlan ModelCoordinator::BuildSlotPlanUnlocked() {
             break;
         case CoordinatorScene::Idle:
         default:
+            // idle 期保持 yolo 常驻策略，不受 TTS throttle 影响，避免掉到 mode:none。
             plan.want_yolo = yolo_always_on_;
             break;
+    }
+    // 兜底：若本轮计划会导致无视觉槽，且配置允许 yolo 常驻，则强制保留 yolo。
+    if (!plan.want_yolo && !plan.want_scrfd && yolo_always_on_) {
+        plan.want_yolo = true;
     }
     return plan;
 }
@@ -337,8 +355,10 @@ void ModelCoordinator::UpdateAfterFrame(const AdapterSignals& signals, const cv:
 
         MergeSignalsUnlocked(signals);
 
+        // yolo 跳帧时 scrfd 的 face_detected 同样可证明 person 仍在场。
+        const bool person_present = signals.person_present || signals.face_detected;
         // person 去抖计数：出现连续计数 + 消失清零逻辑。
-        if (signals.person_present) {
+        if (person_present) {
             person_present_count_++;
             person_absent_count_ = 0;
         } else {
@@ -370,6 +390,17 @@ void ModelCoordinator::UpdateAfterFrame(const AdapterSignals& signals, const cv:
                     scene_str.c_str(), SceneName(applied_scene_), scene_dwell_count_,
                     scene_dwell_frames_);
             last_logged_scene_ = scene_str;
+        }
+        const bool skip_yolo = tts_visual_throttle_enabled_ &&
+                               applied_scene_ == CoordinatorScene::Person &&
+                               enabled_slots_.count("scrfd") > 0 &&
+                               llm_greeting_.ShouldThrottleVisionForTts();
+        if (skip_yolo != last_tts_throttle_) {
+            LogInfo("ModelCoordinator: tts yolo-skip %s (yolo=%d scrfd=%d)",
+                    skip_yolo ? "on" : "off",
+                    plan.want_yolo ? 1 : 0,
+                    plan.want_scrfd ? 1 : 0);
+            last_tts_throttle_ = skip_yolo;
         }
     }
 

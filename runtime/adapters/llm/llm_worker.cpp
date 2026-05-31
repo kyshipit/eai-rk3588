@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdio>
 #include <sys/stat.h>
+#include <vector>
 
 #include "adapters/tts/tts_worker.h"
 #include "platform/logging.h"
@@ -122,12 +123,28 @@ void LlmWorker::SetBannerCallback(BannerCallback cb) {
 void LlmWorker::SetTtsWorker(TtsWorker* tts) {
     std::lock_guard<std::mutex> lock(mutex_);
     tts_ = tts;
+    if (!tts_) {
+        tts_events_.clear();
+        tts_ingress_.Reset();
+        tts_planner_.Reset();
+    }
+}
+
+// 配置正式回答规划参数。
+void LlmWorker::ConfigureTtsPlanner(const TtsPlannerConfig& cfg) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    tts_planner_.Configure(cfg);
 }
 
 // 是否在本轮 rkllm 结束后播报累积正文。
 void LlmWorker::SetTtsEnabled(bool enabled) {
     std::lock_guard<std::mutex> lock(mutex_);
     tts_enabled_ = enabled;
+    if (!tts_enabled_) {
+        tts_events_.clear();
+        tts_ingress_.Reset();
+        tts_planner_.Reset();
+    }
 }
 
 // 查询当前是否正在生成。
@@ -169,6 +186,11 @@ bool LlmWorker::IsLoadFailedUnlocked() const {
     return init_state_ == InitState::Failed;
 }
 
+// 锁内判断当前生成会话是否仍是最新 TTS 会话。
+bool LlmWorker::IsCurrentTtsSessionLiveUnlocked() const {
+    return current_tts_session_id_ == desired_tts_session_id_;
+}
+
 // 清空所有待处理内容（包括当前已聚合但未发布的 banner）。
 void LlmWorker::ClearPendingPrompts() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -181,6 +203,10 @@ void LlmWorker::ClearPendingPrompts() {
     pending_banner_.clear();
     streamed_chars_ = 0;
     banner_src_ = LlmPromptSource::FaceAppear;
+    tts_events_.clear();
+    tts_ingress_.Reset();
+    tts_planner_.Reset();
+    current_tts_session_id_ = desired_tts_session_id_;
 }
 
 // 仅丢弃排队输入，不打断当前正在输出的这一轮。
@@ -193,9 +219,56 @@ void LlmWorker::DropQueuedPrompts() {
     // 保留 pending_text_/banner_pending_，确保正在生成的一句仍可正常收尾输出。
 }
 
+// 主线程消费回调线程投递的 TTS 事件，经 Ingress/Planner 规划后下发 FormalAnswer。
+void LlmWorker::DrainDeferredTtsEvents() {
+    TtsWorker* tts = nullptr;
+    std::vector<std::string> segments;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!tts_enabled_ || !tts_ || tts_events_.empty()) {
+            return;
+        }
+        tts = tts_;
+        while (!tts_events_.empty()) {
+            TtsEvent event = std::move(tts_events_.front());
+            tts_events_.pop_front();
+            if (event.session_id != desired_tts_session_id_) {
+                continue;
+            }
+            if (event.state == RKLLM_RUN_NORMAL) {
+                if (!event.chunk.empty()) {
+                    std::string visible_delta;
+                    tts_ingress_.Feed(event.chunk.c_str(), visible_delta);
+                    if (!visible_delta.empty()) {
+                        tts_planner_.Feed(visible_delta, segments);
+                    }
+                }
+                continue;
+            }
+            if (event.state == RKLLM_RUN_FINISH) {
+                std::string visible_delta;
+                tts_ingress_.Flush(visible_delta);
+                if (!visible_delta.empty()) {
+                    tts_planner_.Feed(visible_delta, segments);
+                }
+                tts_planner_.Flush(segments);
+                continue;
+            }
+            if (event.state == RKLLM_RUN_ERROR) {
+                tts_ingress_.Reset();
+                tts_planner_.Reset();
+            }
+        }
+    }
+    for (const auto& segment : segments) {
+        tts->EnqueueFormalAnswer(segment);
+    }
+}
+
 // 主线程轮询：发布已完成 banner，并在可运行时投递下一条 deferred/pending 输入。
 void LlmWorker::PollDeferred() {
     PollInitState();
+    DrainDeferredTtsEvents();
 
     BannerCallback cb;
     std::string banner;
@@ -319,22 +392,23 @@ bool LlmWorker::RunPromptNow(const std::string& user_text, LlmPromptSource src) 
             reply_accumulator_.clear();
             if (tts_enabled_) {
                 session_.SetReplyAccumulator(&reply_accumulator_);
+                tts_events_.clear();
+                current_tts_session_id_ = desired_tts_session_id_;
+                tts_ingress_.Reset();
+                tts_planner_.Reset();
             } else {
                 session_.SetReplyAccumulator(nullptr);
             }
         }
         const int ret = session_.RunPromptSync(user_text);
-        std::string reply;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             session_.SetReplyAccumulator(nullptr);
-            reply = std::move(reply_accumulator_);
+            reply_accumulator_.clear();
             infer_busy_ = false;
         }
         if (ret != 0) {
             LogWarn("LlmWorker: rkllm_run failed (%d)", ret);
-        } else if (tts_ && tts_enabled_ && !reply.empty()) {
-            tts_->PlayText(reply);
         }
     });
     return true;
@@ -350,11 +424,21 @@ bool LlmWorker::SubmitPrompt(const std::string& user_text, LlmPromptSource src, 
     }
     if (tts_) {
         tts_->Cancel();
+        tts_->PlayFastAck();
     }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (IsLoadFailedUnlocked()) {
             return false;
+        }
+        if (tts_enabled_ && tts_) {
+            ++desired_tts_session_id_;
+            if (desired_tts_session_id_ == 0) {
+                desired_tts_session_id_ = 1;
+            }
+            tts_events_.clear();
+            tts_ingress_.Reset();
+            tts_planner_.Reset();
         }
     }
     if (RunPromptNow(user_text, src)) {
@@ -412,18 +496,36 @@ void LlmWorker::Shutdown() {
     deferred_prompt_.clear();
     banner_pending_ = false;
     pending_banner_.clear();
+    tts_events_.clear();
+    tts_ingress_.Reset();
+    tts_planner_.Reset();
+    current_tts_session_id_ = desired_tts_session_id_;
 }
 
-// RKLLM 回调处理：NORMAL 已在 StaticCallback 直出 stdout；此处只处理 FINISH/ERROR 状态。
+// RKLLM 回调处理：仅记录 TTS 事件与排队状态，不在回调线程执行分块/入队。
 void LlmWorker::OnLlmChunk(const char* text_chunk, LLMCallState state) {
-    (void)text_chunk;
     std::string queued_prompt;
     LlmPromptSource queued_src = LlmPromptSource::FaceAppear;
     bool has_queued = false;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (state == RKLLM_RUN_FINISH) {
+        if (state == RKLLM_RUN_NORMAL) {
+            if (tts_enabled_ && tts_ && IsCurrentTtsSessionLiveUnlocked() &&
+                text_chunk && text_chunk[0] != '\0') {
+                TtsEvent event;
+                event.session_id = current_tts_session_id_;
+                event.state = state;
+                event.chunk = text_chunk;
+                tts_events_.push_back(std::move(event));
+            }
+        } else if (state == RKLLM_RUN_FINISH) {
+            if (tts_enabled_ && tts_ && IsCurrentTtsSessionLiveUnlocked()) {
+                TtsEvent event;
+                event.session_id = current_tts_session_id_;
+                event.state = state;
+                tts_events_.push_back(std::move(event));
+            }
             pending_text_.clear();
             streamed_chars_ = 0;
             if (has_pending_) {
@@ -439,6 +541,9 @@ void LlmWorker::OnLlmChunk(const char* text_chunk, LLMCallState state) {
             streamed_chars_ = 0;
             has_pending_ = false;
             pending_prompt_.clear();
+            tts_events_.clear();
+            tts_ingress_.Reset();
+            tts_planner_.Reset();
         }
     }
 

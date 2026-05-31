@@ -3,6 +3,7 @@
  */
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -21,10 +22,14 @@ struct MeloTtsConfig {
     int speak_id = 1;
     float speed = 1.0f;
     bool disable_bert = true;
+    int split_min_chars = 8;
 };
 
 class MeloTtsSession {
 public:
+    // 逐片段 PCM 回调；返回 false 表示调用方要求停止后续合成。
+    using PcmChunkCallback = std::function<bool(std::vector<float>&&)>;
+
     // 空会话，尚未加载 RKNN。
     MeloTtsSession();
     // 析构时 Shutdown 释放资源。
@@ -39,8 +44,14 @@ public:
 
     // 将多句文本合成为 44100Hz 单声道 PCM；失败返回空 vector。
     std::vector<float> SynthesizeText(const std::string& text);
+    // 按句增量合成并回调 PCM 片段；至少产出一段返回 true。
+    bool SynthesizeTextStreaming(const std::string& text, const PcmChunkCallback& on_chunk);
 
 private:
+    // 在已持锁状态下，完成单句文本的 MeloTTS 推理。
+    bool SynthesizeOneSentenceUnlocked(const std::string& sentence, int lang_id,
+                                       std::vector<float>& pcm_out);
+    // 将语言名转换为推理所需 lang_id。
     int LanguageId(const std::string& language) const;
 
     mutable std::mutex mutex_;

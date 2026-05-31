@@ -7,6 +7,7 @@
 #include <vector>
 #include <atomic>
 #include <algorithm>
+#include <cstdlib>
 
 #include "engine/pipeline.h"
 #include "platform/logging.h"
@@ -20,6 +21,7 @@
 #include "adapters/scrfd/scrfd_adapter.h"
 #include "adapters/llm/llm_worker.h"
 #include "adapters/tts/melotts_session.h"
+#include "adapters/tts/tts_planner.h"
 #include "adapters/tts/tts_worker.h"
 #include "app/config_parser.h"
 
@@ -138,10 +140,26 @@ int main(int argc, char** argv) {
     bool llm_preload_on_startup = cfg.GetBool("model.llm.preload_on_startup");
     // 自动问候语（检测到稳定人脸后输出）。
     std::string llm_auto_greeting_text = cfg.GetString("model.llm.auto_greeting_text");
-    bool llm_tts_enabled = cfg.GetBool("model.llm.tts.enabled");
-    bool llm_tts_skip_greeting = cfg.GetBool("model.llm.tts.skip_static_greeting");
-    int llm_tts_max_chars = cfg.GetInt("model.llm.tts.max_speak_chars");
-    bool llm_tts_preload = cfg.GetBool("model.llm.tts.preload_on_startup");
+    bool llm_tts_enabled = cfg.GetBool("model.tts.enabled");
+    bool llm_tts_skip_greeting = cfg.GetBool("model.tts.skip_static_greeting");
+    int llm_tts_max_chars = cfg.GetInt("model.tts.max_speak_chars");
+    int llm_tts_split_min_chars = cfg.GetInt("model.tts.split_min_chars", 4);
+    bool llm_tts_fast_ack_enabled = cfg.GetBool("model.tts.fast_ack.enabled", true);
+    std::string llm_tts_fast_ack_text = cfg.GetString("model.tts.fast_ack.text", "好的。");
+    int llm_tts_planner_zh_min = cfg.GetInt("model.tts.planner.zh_min_chars", 8);
+    int llm_tts_planner_zh_max = cfg.GetInt("model.tts.planner.zh_max_chars", 15);
+    int llm_tts_planner_en_min = cfg.GetInt("model.tts.planner.en_min_words", 4);
+    int llm_tts_planner_en_max = cfg.GetInt("model.tts.planner.en_max_words", 8);
+    int llm_tts_planner_fallback_ms = cfg.GetInt("model.tts.planner.fallback_timeout_ms", 600);
+    bool llm_tts_preload = cfg.GetBool("model.tts.preload_on_startup");
+    float llm_tts_speed = static_cast<float>(std::atof(cfg.GetString("model.tts.speed", "1.0").c_str()));
+    if (llm_tts_speed <= 0.0f) {
+        llm_tts_speed = 1.0f;
+    }
+    bool llm_tts_visual_throttle = cfg.GetBool("model.tts.qos.enable_visual_throttle", true);
+    int llm_tts_low_watermark_chunks = cfg.GetInt("model.tts.qos.low_watermark_chunks", 1);
+    int llm_tts_high_watermark_chunks = cfg.GetInt("model.tts.qos.high_watermark_chunks", 3);
+    int llm_tts_min_start_chunks = cfg.GetInt("model.tts.qos.min_start_pcm_chunks", 2);
 
     std::shared_ptr<IModelAdapter> base_adapter;
     if (model_type == "yolo") {
@@ -164,6 +182,7 @@ int main(int argc, char** argv) {
         ModelCoordinator coordinator;
         coordinator.SetSlotOptions(yolo_always_on);
         coordinator.SetSceneDwellFrames(scene_dwell_frames);
+        coordinator.SetTtsVisualThrottleEnabled(llm_tts_visual_throttle);
 
         std::shared_ptr<LlmWorker> llm_worker;
         std::shared_ptr<TtsWorker> tts_worker;
@@ -182,17 +201,30 @@ int main(int argc, char** argv) {
             }
             if (llm_tts_enabled) {
                 MeloTtsConfig tts_cfg;
-                tts_cfg.encoder_path = cfg.GetString("model.llm.tts.encoder_path");
-                tts_cfg.decoder_path = cfg.GetString("model.llm.tts.decoder_path");
-                tts_cfg.lexicon_path = cfg.GetString("model.llm.tts.lexicon_path");
-                tts_cfg.tokens_path = cfg.GetString("model.llm.tts.tokens_path");
-                tts_cfg.language = cfg.GetString("model.llm.tts.language");
-                tts_cfg.speak_id = cfg.GetInt("model.llm.tts.speak_id");
-                tts_cfg.speed = 1.0f;
-                tts_cfg.disable_bert = cfg.GetBool("model.llm.tts.disable_bert");
+                tts_cfg.encoder_path = cfg.GetString("model.tts.encoder_path");
+                tts_cfg.decoder_path = cfg.GetString("model.tts.decoder_path");
+                tts_cfg.lexicon_path = cfg.GetString("model.tts.lexicon_path");
+                tts_cfg.tokens_path = cfg.GetString("model.tts.tokens_path");
+                tts_cfg.language = cfg.GetString("model.tts.language");
+                tts_cfg.speak_id = cfg.GetInt("model.tts.speak_id");
+                tts_cfg.speed = llm_tts_speed;
+                tts_cfg.disable_bert = cfg.GetBool("model.tts.disable_bert");
+                tts_cfg.split_min_chars = llm_tts_split_min_chars;
                 tts_worker = std::make_shared<TtsWorker>();
                 tts_worker->Configure(tts_cfg, llm_tts_max_chars);
+                tts_worker->SetPlaybackProtectionThresholds(
+                    static_cast<size_t>(llm_tts_low_watermark_chunks),
+                    static_cast<size_t>(llm_tts_high_watermark_chunks));
+                tts_worker->SetMinStartPcmChunks(static_cast<size_t>(llm_tts_min_start_chunks));
+                tts_worker->ConfigureFastAck(llm_tts_fast_ack_enabled, llm_tts_fast_ack_text);
                 llm_worker->SetTtsWorker(tts_worker.get());
+                TtsPlannerConfig planner_cfg;
+                planner_cfg.zh_min_chars = static_cast<size_t>(std::max(1, llm_tts_planner_zh_min));
+                planner_cfg.zh_max_chars = static_cast<size_t>(std::max(1, llm_tts_planner_zh_max));
+                planner_cfg.en_min_words = static_cast<size_t>(std::max(1, llm_tts_planner_en_min));
+                planner_cfg.en_max_words = static_cast<size_t>(std::max(1, llm_tts_planner_en_max));
+                planner_cfg.fallback_timeout_ms = std::max(100, llm_tts_planner_fallback_ms);
+                llm_worker->ConfigureTtsPlanner(planner_cfg);
                 llm_worker->SetTtsEnabled(true);
                 coordinator.GetLlmGreeting().SetTtsWorker(tts_worker.get(),
                                                           llm_tts_skip_greeting);

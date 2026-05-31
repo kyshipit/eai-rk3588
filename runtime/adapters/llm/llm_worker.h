@@ -3,12 +3,16 @@
  */
 #pragma once
 
+#include <deque>
+#include <cstdint>
 #include <functional>
 #include <future>
 #include <mutex>
 #include <string>
 #include <thread>
 
+#include "adapters/tts/tts_ingress.h"
+#include "adapters/tts/tts_planner.h"
 #include "rkllm_session.h"
 
 class TtsWorker;
@@ -37,8 +41,10 @@ public:
     void RequestInitializeAsync();
     // 设置一轮回复完成后的文本回调。
     void SetBannerCallback(BannerCallback cb);
-    // 绑定 TTS；FINISH 后播报本轮 reply_accumulator_。
+    // 绑定 TTS；NORMAL 流式 chunk event 经 Ingress/Planner 旁路。
     void SetTtsWorker(TtsWorker* tts);
+    // 配置正式回答规划参数。
+    void ConfigureTtsPlanner(const TtsPlannerConfig& cfg);
     // 是否在本轮 rkllm 结束后将累积正文提交 TTS。
     void SetTtsEnabled(bool enabled);
 
@@ -64,13 +70,24 @@ public:
     bool IsBusy() const;
 
 private:
+    // 回调线程投递的 TTS 事件（正文 chunk / FINISH 刷尾）。
+    struct TtsEvent {
+        uint64_t session_id = 0;
+        LLMCallState state = RKLLM_RUN_NORMAL;
+        std::string chunk;
+    };
+
     static void ChunkTrampoline(const char* text_chunk, LLMCallState state, void* user_data);
     void OnLlmChunk(const char* text_chunk, LLMCallState state);
+    // 在主线程消费回调投递的 TTS 事件，避免回调线程执行分块逻辑。
+    void DrainDeferredTtsEvents();
     bool RunPromptNow(const std::string& user_text, LlmPromptSource src);
     static const char* SourceName(LlmPromptSource src);
     bool IsReadyUnlocked() const;
     bool IsInitializingUnlocked() const;
     bool IsLoadFailedUnlocked() const;
+    // 当前 run 的 TTS 会话是否仍为最新（用于丢弃旧会话 chunk）。
+    bool IsCurrentTtsSessionLiveUnlocked() const;
     void PollInitState();
     void JoinInferThread();
 
@@ -85,6 +102,8 @@ private:
     TtsWorker* tts_ = nullptr;
     bool tts_enabled_ = false;
     std::string reply_accumulator_;
+    TtsIngress tts_ingress_;
+    TtsPlanner tts_planner_;
     BannerCallback banner_cb_;
     mutable std::mutex mutex_;
     std::string model_path_;
@@ -107,4 +126,7 @@ private:
     LlmPromptSource banner_src_ = LlmPromptSource::FaceAppear;
     LlmPromptSource current_src_ = LlmPromptSource::FaceAppear;
     size_t streamed_chars_ = 0;
+    std::deque<TtsEvent> tts_events_;
+    uint64_t desired_tts_session_id_ = 1;
+    uint64_t current_tts_session_id_ = 1;
 };

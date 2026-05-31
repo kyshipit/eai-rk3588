@@ -161,12 +161,26 @@ void LlmGreeting::SetBannerLine(const std::string& line, LlmPromptSource src, bo
             LogDebug("LLM_OUT|src=%s|text=%s", SourceName(ai_stream_src_),
                      EscapeForMachineLog(ai_stream_text_).c_str());
         }
-        if (tts_ && !skip_static_greeting_ && !ai_stream_text_.empty()) {
+        if (tts_ && !skip_static_greeting_ && !ai_stream_text_.empty() &&
+            (src == LlmPromptSource::FaceAppear || src == LlmPromptSource::FaceReenter)) {
             tts_->PlayText(ai_stream_text_);
         }
         ai_stream_text_.clear();
         ai_stream_open_ = false;
     }
+}
+
+// 查询是否处于人脸对话窗口，仅 Active/Grace 允许语音 QoS 影响视觉推理。
+bool LlmGreeting::IsFaceDialogueActive() const {
+    return state_ == SessionState::Active || state_ == SessionState::Grace;
+}
+
+// 查询 TTS 是否请求视觉降载，限制在有人脸对话窗口内生效。
+bool LlmGreeting::ShouldThrottleVisionForTts() const {
+    if (!tts_ || !IsFaceDialogueActive()) {
+        return false;
+    }
+    return tts_->NeedPlaybackProtection();
 }
 
 // Pipeline 停止时中断 RKLLM，避免 Shutdown 卡在 JoinInferThread。

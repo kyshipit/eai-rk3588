@@ -4,6 +4,7 @@
 
 - 本文说明 RKLLM（DeepSeek 等 `.rkllm`）在 runtime 中的目录、与视觉流水线的边界、人脸门控与会话状态机，以及麦克风/按键扩展方式。
 - LLM 为**逻辑层能力**：**不**实现 `IModelAdapter`，**不**进入 `RunEnabledSlots` / 每帧 `Preprocess→Inference→Postprocess`。
+- 对话体验目标已升级为“长文本不等待全文、持续恢复播报”，因此本文同时约束 LLM 与 TTS 的协同边界与会话抢占语义。
 - 实现以当前代码为准；§4 为产品行为定稿，§7 为未完成项。
 
 **相关代码：**
@@ -111,6 +112,35 @@ flowchart TB
 
 ---
 
+## 4.1 与 TTS 的低时延协同（现状 + 目标）
+
+### 现状链路
+
+```text
+YOU> -> LlmGreeting::SubmitUserPrompt -> LlmWorker::SubmitPrompt
+     -> rkllm_run (stdout 流式 AI>，含 thinking 显示)
+     -> TtsStreamBuffer（跳过 thinking）-> EnqueueSentence -> 块级 RKNN + gst-launch PCM
+```
+
+- LLM 仍负责对话门控、busy 排队、`AbortActiveGeneration` 与会话状态驱动。
+- TTS 与 LLM 是并列逻辑旁路，不进入视觉槽，但共享板端资源（NPU/CPU/带宽）。
+
+### 目标约束（必须满足）
+
+1. **长文本不等待全文**：LLM 输出进入事件驱动分块，按句界 + 时间双触发持续下发 TTS（**已实现**）。  
+2. **无明显截断等待感**：播放器使用 `gst-launch` PCM 管道（**已实现**）；合成侧仍为块级 RKNN，NPU 争用时可能短静音。  
+3. **会话级抢占一致性**：每次 `YOU>` 生成新会话标识；旧会话文本块/PCM 必须可被立即丢弃。  
+4. **LLM 主责不变**：人脸门控、输入接受策略、初始化失败降级策略仍由 LLM 侧统一裁决。  
+5. **并发可控**：对话期按负载调节分块与合成频率，避免 LLM 与 TTS 互相拖慢导致“长文恢复慢”。
+
+### 边界约定
+
+- `ModelCoordinator` 继续只管视觉槽启停与每帧信号，不承担语音排程。  
+- `LlmGreeting` 继续作为对话入口与门控裁决层；TTS 仅消费“可播正文”。  
+- TTS 内部如何合成/播放并行，不改变 `SubmitPrompt` / `Cancel` / `Abort` 的外部语义。
+
+---
+
 ## 5. 终端 UX
 
 | 前缀 | 来源 | 路径 |
@@ -210,7 +240,7 @@ LlmPromptSource: FaceAppear | FaceReenter | Microphone | Button | Command
 |------|------|
 | 按键输入 | `Button` source |
 | SCRFD 五点 overlay | 后处理已有坐标，绘制待接 |
-| TTS v2 按句播 | v1 已集成 MeloTTS（见 [适配器说明.md](适配器说明.md) § TTS）；增量句界 + 边生成边播未做 |
+| TTS 低时延架构落地 | 真流式 PCM 播放、合成/播放并行流水线、句界+时间双触发分块、会话级抢占（见 [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md)） |
 | 对话期减视觉负载 | 可选：对话中降帧或缩槽 |
 | 日志插屏 | 状态迁移多为 `LogDebug`；FPS 等 `LogInfo` 仍可能频繁 |
 
@@ -277,11 +307,12 @@ model:
 
 | 文档 | 用途 |
 |------|------|
-| [系统架构与运行逻辑.md](系统架构与运行逻辑.md) | 平台总览、加载顺序 |
-| [接续开发说明.md](接续开发说明.md) | 目录、多槽、编译 |
+| [系统架构与运行逻辑.md](系统架构与运行逻辑.md) | 平台总览、加载顺序、接续开发 |
+| [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) | TTS/语音对话设计与验收 |
 | [适配器说明.md](适配器说明.md) § LLM | LLM 适配器速览 |
-| [模型演进与待办.md](模型演进与待办.md) | 演进路线与 backlog |
+| [运行排障.md](运行排障.md) | 视觉模型、退出、崩溃排障 |
+| [doc-readme.md](doc-readme.md) | docs 索引 |
 
 ---
 
-*文档版本：2026-05-28；对齐 `LlmWorker` stat 预检、仅视觉降级 UX、`LogStartupHint`。*
+*文档版本：2026-05-30；对齐 `LlmWorker` stat 预检、仅视觉降级 UX，以及“长文本不等待全文”的 LLM-TTS 协同约束。*

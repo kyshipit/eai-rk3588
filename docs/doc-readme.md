@@ -1,80 +1,30 @@
-# Runtime 开发说明
+# Runtime 文档索引
 
-板端开发与排障入口。
+板端开发与排障入口。仓库根 [README.md](../README.md) 为项目总览。
 
-| 入口 | 内容 |
-|------|------|
-| 仓库根 [README.md](../README.md) | 项目总览、架构、快速上手 |
-| [系统架构与运行逻辑.md](系统架构与运行逻辑.md) | **平台**框架、模块加载顺序、槽关系、设计取舍（**推荐阅读**） |
-| [接续开发说明.md](接续开发说明.md) | 目录、多槽、配置、编译（板端开发必读） |
+## 推荐阅读顺序
 
+1. [系统架构与运行逻辑.md](系统架构与运行逻辑.md) — 平台主文档：架构、模块、启动、运行、接续开发
+2. [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) — 改语音/TTS 时读（**唯一验收依据**）
+3. [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) — 改对话/门控时读
+4. [适配器说明.md](适配器说明.md) — 查 adapter 文件职责
+5. [运行排障.md](运行排障.md) — 出问题时查
 
 ## 能力摘要
 
 - **可执行文件**：`edgeai_platform_app`（`runtime/` 下 `./build-linux.sh`）
 - **视觉槽**：YOLOv5（哨兵）、SCRFD（人脸）；`ModelCoordinator` 去抖切换
-- **LLM**（`model.llm.enabled`）：自动问候为 yaml 静态文案 + `SetBannerLine`（不经 RKLLM）；终端 `YOU>` → `SubmitPrompt` → 独立线程 `rkllm_run`
-- **TTS**（`model.llm.tts.enabled`）：播报 `AI>` 问候与 RKLLM 整轮回复（MeloTTS + `gst-play-1.0`）
-- **流水线**：预处理 + 推理线程池 + 主线程显示；终端 `SYS>`/`YOU>`/`AI>` 走 stdout
+- **LLM**（`model.llm.enabled`）：自动问候为 yaml 静态文案 + `SetBannerLine`；终端 `YOU>` → `SubmitPrompt` → 独立线程 `rkllm_run`
+- **TTS**（`model.tts.enabled`）：FastAck 短反馈 + 正式回答连续播；详见 TTS 主文档
 - **配置**：`config/default.yaml` 为唯一默认来源
+- **勿随意修改**：`runtime/3rdparty`、`runtime/utils` 为正点原子/RK 上游
 
-- **勿随意修改**： `runtime/3rdparty`、`runtime/utils` 为正点原子/RK 上游。
+## 非验收 backlog
 
-细节见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md)、[接续开发说明.md](接续开发说明.md)、[LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md)。
-
-## 常见问题
-
-**YOLO 0 框，日志 `output num: 9`**
-
-- `model.yolo.path` 误指 `scrfd.rknn`；YOLO 应为 3 路，9 路是 SCRFD → [YOLO与SCRFD问题排查记录.md](YOLO与SCRFD问题排查记录.md)
-
-**SCRFD 满屏乱框**
-
-- 9 路输出索引与后处理布局不符 → 同上专文 §4.4
-
-**缺 `.rkllm` 或对话模型加载失败**
-
-- 视觉（YOLO/SCRFD）应正常；`LlmWorker` 在 `RequestInitializeAsync` 内 **stat 预检**，缺失则 **跳过 `rkllm_init`**，进入仅视觉降级。
-- 终端：`SYS> 仅视觉模式（对话模型未加载）`；**不应**再出现「输入通道已就绪」或静态 `AI>` 问候。
-- 用户仍输入时：`SYS> 对话不可用（模型未加载）`（每会话提示一次）。
-- 详见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md) §5、§8、[LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) §5–§6。
-
-**缺 `.rkllm` 却报 YOLO Init 失败**
-
-- 若仍出现：先确认 YOLO 路径/模型本身（`ls ./model/yolov5.rknn`、勿与 scrfd 混用）；预检生效后不应再因 `rkllm_init` 拖垮 YOLO。见 [YOLO与SCRFD问题排查记录.md](YOLO与SCRFD问题排查记录.md)
-
-**Ctrl+C 不退出**
-
-- 队列或 LLM 推理线程阻塞；查 `TryPush`、哨兵帧 → [错误修复调试说明.md](错误修复调试说明.md)、排查记录 §4.5
-
-**退出 SIGSEGV**
-
-- OpenCV / 摄像头 / 线程释放顺序竞态 → [错误修复调试说明.md](错误修复调试说明.md)
-
-**LLM 回答截断**
-
-- 查 `max_new_tokens`；R1 类模型 thinking 段占 token → [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md)
-
-**有 YOU> 无 AI> 或极慢**
-
-- 查 `model.llm.enabled`、`rkllm_init`；与 YOLO/SCRFD 争 NPU 时延迟上升
-
-**无预览窗口**
-
-- `input.show_window: false` 或无 GUI 时 headless 降级
-
-## 文档索引
-
-| 文档 | 说明 |
-|------|------|
-| [系统架构与运行逻辑.md](系统架构与运行逻辑.md) | 平台框架、加载顺序、参考应用场景 |
-| [接续开发说明.md](接续开发说明.md) | 目录、多槽、配置、编译 |
-| [适配器说明.md](适配器说明.md) | YOLO / SCRFD / LLM / TTS 适配器速览 |
-| [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) | RKLLM、门控、终端 UX |
-| [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) | MeloTTS 配置与验收 |
-| [YOLO与SCRFD问题排查记录.md](YOLO与SCRFD问题排查记录.md) | 路径与拓扑排障 |
-| [错误修复调试说明.md](错误修复调试说明.md) | 崩溃与退出 |
-| [模型演进与待办.md](模型演进与待办.md) | 演进路线与 backlog（非验收） |
+- VAD/ASR/AEC：实现真实语音输入与打断
+- 更快 TTS / 预合成话术：提升机器人语音体验
+- YOLO-World：开放词汇视觉哨兵
+- 按键输入：`LlmPromptSource::Button` 待接入
 
 ## License
 
