@@ -1,3 +1,5 @@
+Language: **中文** | [English](llm-model-coordinator.md)
+
 # LLM 与 ModelCoordinator 集成
 
 ## 读者须知
@@ -27,7 +29,7 @@
 | API | `rkllm_init` / **`rkllm_run`（同步）** / callback → `rkllm_session` |
 | 第三方 | `runtime/3rdparty/rkllm/`：`rkllm.h`、`librkllmrt.so`、`libgomp.so` |
 
-适配器文件与路径速览见 [适配器说明.md](适配器说明.md) § LLM。
+适配器文件与路径速览见 [adapters_CN.md](adapters_CN.md) § LLM。
 
 ---
 
@@ -104,7 +106,7 @@ flowchart TB
 | `model_coordinator.cpp` | 视觉槽；每帧 `PollDeferred` |
 | `pipeline.cpp` | 终端 `YOU>` |
 
-**InitOnce：** 首次 `rkllm_init` 成功后进程内保持加载；脸消失 **不** `rkllm_destroy`。权重加载为 `std::async`，只影响首启。
+**InitOnce：** 首次 `rkllm_init` 成功后进程内保持加载；脸消失 **不** `rkllm_destroy`。模型异步加载为 `std::async`，只影响首启。
 
 **仍可能影响体感：** YOLO + SCRFD 与 LLM 争用 NPU/带宽；`[INFO]` 等诊断日志在 stderr，与 stdout 会话行分离。
 
@@ -121,7 +123,7 @@ YOU> -> SubmitPrompt (Cancel + PlayFastAck)
 
 - 每次 `YOU>`：`desired_tts_session_id_++`，丢弃旧代际文本/PCM。
 - `LlmGreeting` 管门控；TTS 仅消费 Ingress 过滤后的可见正文。
-- 验收与排障见 [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md)。
+- 验收与排障见 [tts-melotts_CN.md](tts-melotts_CN.md)。
 
 ---
 
@@ -289,11 +291,11 @@ model:
 
 | 文档 | 用途 |
 |------|------|
-| [系统架构与运行逻辑.md](系统架构与运行逻辑.md) | 平台总览、加载顺序、接续开发 |
-| [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) | TTS/语音对话设计与验收 |
-| [适配器说明.md](适配器说明.md) § LLM | LLM 适配器速览 |
-| [运行排障.md](运行排障.md) | 视觉模型、退出、崩溃排障 |
-| [docs/README.md](docs/README.md) | docs 索引 |
+| [architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) | 平台总览、加载顺序、接续开发 |
+| [tts-melotts_CN.md](tts-melotts_CN.md) | TTS/语音对话设计与验收 |
+| [adapters_CN.md](adapters_CN.md) § LLM | LLM 适配器速览 |
+| [troubleshooting_CN.md](troubleshooting_CN.md) | 视觉模型、退出、崩溃排障 |
+| [README_CN.md](README_CN.md) | Edge AI Runtime 文档索引 |
 
 ---
 

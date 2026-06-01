@@ -1,8 +1,10 @@
+Language: **中文** | [English](architecture-and-runtime.md)
+
 # 系统架构与运行逻辑
 
 > **Edge AI Runtime** 在 RK3588 上的平台主文档：分层、槽关系、启动/运行时顺序、设计取舍。  
 > **参考应用**：`default.yaml` 下的人脸检测 + 对话 + TTS（非唯一形态）。  
-> 单模块细节与验收见 [docs/README.md](docs/README.md) 所列专文；实现以 `runtime/` 代码为准。
+> 单模块细节与验收见 [README_CN.md](README_CN.md) 所列专文；实现以 `runtime/` 代码为准。
 
 ---
 
@@ -17,7 +19,9 @@
 | `3rdparty`、`utils`（只读链接）                  | Cursor worktree 副本   |
 
 
-示意图：`[README.md](../README.md)`、`[assets/architecture.svg](../assets/architecture.svg)`。
+![Edge AI Runtime 架构](../assets/architecture_cn.svg)
+
+*实线：帧/数据；虚线：配置与 person/face 信号。TTS 模块细节见 [tts-melotts_CN.md](tts-melotts_CN.md) §3–4；启动与线程见本文 §5–6。*
 
 **默认参考应用**（预览 + 终端 `SYS>`/`YOU>`/`AI>` + 扬声器）：
 
@@ -149,7 +153,7 @@ sequenceDiagram
 | 7   | `Run()` → `LogStartupHint()` 一条 `SYS>`；退出 `Shutdown`              |
 
 
-`SYS>` 与 Failed/Ready 文案详见 [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) §5。入口：`[app/main.cc](../runtime/app/main.cc)`、`[pipeline.cpp](../runtime/engine/pipeline.cpp)`。
+`SYS>` 与 Failed/Ready 文案详见 [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) §5。入口：`[app/main.cc](../runtime/app/main.cc)`、`[pipeline.cpp](../runtime/engine/pipeline.cpp)`。
 
 ---
 
@@ -180,7 +184,7 @@ flowchart LR
 
 要点：`UpdateAfterFrame` 在绘制前；yolo+scrfd 时抑制 YOLO person 框；每帧末 `PollDeferred()`（LLM/TTS init 与 TTS 事件）。
 
-**退出**：`Stop()` → `AbortActiveGeneration`、释放相机、quit 哨兵 → `tts`/`llm` `Shutdown()`。异常见 [运行排障.md](运行排障.md)。
+**退出**：`Stop()` → `AbortActiveGeneration`、释放相机、quit 哨兵 → `tts`/`llm` `Shutdown()`。异常见 [troubleshooting_CN.md](troubleshooting_CN.md)。
 
 ---
 
@@ -198,10 +202,10 @@ flowchart LR
 
 | 能力                   | 平台内位置                                                                | 专文                                                     |
 | -------------------- | -------------------------------------------------------------------- | ------------------------------------------------------ |
-| **门控 / 问候 / `YOU>`** | `LlmGreeting`：Locked→Arming→Active→Grace；`prompt_gate` 须 `IsReady()` | [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) |
+| **门控 / 问候 / `YOU>`** | `LlmGreeting`：Locked→Arming→Active→Grace；`prompt_gate` 须 `IsReady()` | [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) |
 | **RKLLM**            | `infer_thread_` + `rkllm_run`；chunk → `PollDeferred`                 | 同上                                                     |
-| **TTS**              | FastAck → Ingress → Planner → 合成/播放；TTS 活跃时 **仅跳 yolo 推理**           | [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md)（**验收**）       |
-| **适配器文件**            | `adapters/{yolo,scrfd,llm,tts}/`                                     | [适配器说明.md](适配器说明.md)                                   |
+| **TTS**              | FastAck → Ingress → Planner → 合成/播放；TTS 活跃时 **仅跳 yolo 推理**           | [tts-melotts_CN.md](tts-melotts_CN.md)（**验收**）       |
+| **适配器文件**            | `adapters/{yolo,scrfd,llm,tts}/`                                     | [adapters_CN.md](adapters_CN.md)                                   |
 
 
 ---
@@ -226,15 +230,16 @@ flowchart LR
 
 ```bash
 cd runtime && ./build-linux.sh
+cd install/rk3588_linux_aarch64/rknn_edgeai_platform
 ./edgeai_platform_app config/default.yaml
 ```
 
-板端权重：`./model/`；`verify/` 不参与运行。Backlog（VAD/按键/YOLO-World 等）见 [docs/README.md](docs/README.md)。
+板端模型文件：`./model/`；`verify/` 不参与运行。Backlog（VAD/按键/YOLO-World 等）见 [README_CN.md](README_CN.md)。
 
 ---
 
 ## 11. 相关文档
 
-阅读顺序与索引见 **[docs/README.md](docs/README.md)**。
+阅读顺序与索引见 **[README_CN.md](README_CN.md)**。
 
 *与专文冲突时以代码为准。*

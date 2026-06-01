@@ -1,30 +1,103 @@
-# Runtime 文档索引
+Language: **English** | [中文](README_CN.md)
 
-板端开发与排障入口。仓库根 [README.md](../README.md) 为项目总览。
+# Edge AI Runtime documentation
 
-## 推荐阅读顺序
+> Extensible on-board inference on **RK3588**: camera → YOLO/SCRFD vision → (optional) local RKLLM dialogue + MeloTTS speech.  
+> Repository overview and hardware: root **[README.md](../README.md)**.
 
-1. [系统架构与运行逻辑.md](系统架构与运行逻辑.md) — 平台主文档：分层、启动/运行时、设计取舍（LLM/TTS 细节见专文）
-2. [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) — 改语音/TTS 时读（**唯一验收依据**）
-3. [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) — 改对话/门控时读
-4. [适配器说明.md](适配器说明.md) — 查 adapter 文件职责
-5. [运行排障.md](运行排障.md) — 出问题时查
+---
 
-## 能力摘要
+## Overview
 
-- **可执行文件**：`edgeai_platform_app`（`runtime/` 下 `./build-linux.sh`）
-- **视觉槽**：YOLOv5（哨兵）、SCRFD（人脸）；`ModelCoordinator` 去抖切换
-- **LLM**（`model.llm.enabled`）：自动问候为 yaml 静态文案 + `SetBannerLine`；终端 `YOU>` → `SubmitPrompt` → 独立线程 `rkllm_run`
-- **TTS**（`model.tts.enabled`）：FastAck 短反馈 + 正式回答连续播；详见 TTS 主文档
-- **配置**：`config/default.yaml` 为唯一默认来源
-- **勿随意修改**：`runtime/3rdparty`、`runtime/utils` 为正点原子/RK 上游
+| Component | Role |
+|-----------|------|
+| **Vision** | Person present → enable SCRFD face boxes; scene debounced by `ModelCoordinator` |
+| **Dialogue** | Stable face → terminal `AI>` greeting; `YOU>` → streaming RKLLM (dedicated thread, not per-frame vision) |
+| **Speech** | After `YOU>`: FastAck (≤1s) + formal answer TTS (requires `gst-launch-1.0`) |
+| **Config** | Default source: **`runtime/config/default.yaml`** |
 
-## 非验收 backlog
+Main binary: `edgeai_platform_app` (built under `runtime/`).
 
-- VAD/ASR/AEC：实现真实语音输入与打断
-- 更快 TTS / 预合成话术：提升机器人语音体验
-- YOLO-World：开放词汇视觉哨兵
-- 按键输入：`LlmPromptSource::Button` 待接入
+---
+
+## Build and run
+
+**Prerequisites**: ALIENTEK RK3588 toolchain; `yolov5.rknn` and `scrfd.rknn` under `model/`; for chat add `.rkllm` and TTS lexicon/RKNN (yaml paths).
+
+```bash
+cd runtime && ./build-linux.sh
+cd install/rk3588_linux_aarch64/rknn_edgeai_platform
+./edgeai_platform_app config/default.yaml
+```
+
+**Terminal conventions** (session on stdout, diagnostics on stderr):
+
+| Prefix | Meaning |
+|--------|---------|
+| `SYS>` | System status (loading, vision-only, gate reject, etc.) |
+| `YOU>` | Your input (one stdin line) |
+| `AI>` | Model reply or static greeting |
+
+**Common switches** (restart after yaml change):
+
+```yaml
+model.llm.enabled: true/false    # dialogue pipeline
+model.tts.enabled: true/false    # speech (still needs llm.enabled at startup)
+model.tts.skip_static_greeting: true   # skip static greeting TTS after stable face
+```
+
+Vision-only: missing `.rkllm` or init failure → preview OK, `SYS> 仅视觉模式…`, no greeting, no `YOU>`.
+
+---
+
+## Navigation
+
+| Goal | Document |
+|------|----------|
+| **Understand the platform** | [architecture-and-runtime.md](architecture-and-runtime.md) |
+| **Dialogue / gate / RKLLM** | [llm-model-coordinator.md](llm-model-coordinator.md) |
+| **Speech / TTS acceptance** | [tts-melotts.md](tts-melotts.md) (**sole TTS acceptance doc**) |
+| **What each adapter file does** | [adapters.md](adapters.md) |
+| **Zero boxes, wrong path, hang, crash** | [troubleshooting.md](troubleshooting.md) |
+| **TTS gaps, underrun, FastAck silent** | [tts-melotts.md](tts-melotts.md) §12 |
+
+---
+
+## Reading order
+
+1. **[architecture-and-runtime.md](architecture-and-runtime.md)** — layers, slots, startup, Pipeline threads, trade-offs  
+2. **[tts-melotts.md](tts-melotts.md)** — required for TTS work (FastAck, Planner, underrun acceptance)  
+3. **[llm-model-coordinator.md](llm-model-coordinator.md)** — gate FSM, terminal UX, `YOU>` flow  
+4. **[adapters.md](adapters.md)** — `adapters/{yolo,scrfd,llm,tts}/` file roles  
+5. **[troubleshooting.md](troubleshooting.md)** — when something breaks  
+
+Architecture diagram (same as root [README.md](../README.md) and [architecture-and-runtime.md](architecture-and-runtime.md) §1): [`assets/architecture.svg`](../assets/architecture.svg).
+
+---
+
+## Code and config entry points
+
+| Purpose | Path |
+|---------|------|
+| Startup and config | `runtime/app/main.cc` |
+| Per-frame pipeline | `runtime/engine/pipeline.cpp` |
+| Vision slots / scenes | `runtime/platform/model_coordinator.cpp` |
+| Face gate / greeting | `runtime/platform/llm_greeting.cpp` |
+| RKLLM | `runtime/adapters/llm/` |
+| TTS | `runtime/adapters/tts/` |
+| Default config | `runtime/config/default.yaml` |
+
+**Do not edit casually**: `runtime/3rdparty/`, `runtime/utils/` (upstream ALIENTEK / RK).
+
+---
+
+## Backlog
+
+- Real microphone / VAD / ASR / barge-in  
+- Button input (`LlmPromptSource::Button`)  
+- Faster TTS or YOLO-World, etc.
+
+---
 
 ## License
 

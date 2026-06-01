@@ -1,3 +1,5 @@
+Language: **中文** | [English](tts-melotts.md)
+
 # TTS 与语音对话体验设计
 
 > **唯一 TTS 设计与验收文档**。实现代码：`runtime/adapters/tts/`；配置：`runtime/config/default.yaml` → `model.tts`（启动时仍要求 `model.llm.enabled: true`）。
@@ -215,9 +217,9 @@ YOU> accepted
 2. 正式回答 `underrun` 计数；
 3. 是否 decoder 调用过密（日志多次 `inference_decoder_model` / 段间静音）→ 调高 `planner.*` 阈值或检查 `CoalesceFormalAnswer`；
 4. NPU 争用（`tts yolo-skip on` 是否在对话期生效）；
-5. OOV 吞词（查 lexicon）。
+5. OOV 吞字（查 lexicon）。
 
-平台级 TTS 摘要见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md) §8。
+平台级 TTS 摘要见 [architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) §8。
 
 ---
 

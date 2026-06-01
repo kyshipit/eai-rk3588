@@ -1,6 +1,8 @@
+Language: **中文** | [English](troubleshooting.md)
+
 # 运行排障
 
-> 板端运行常见问题与排查决策。平台架构见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md)；适配器细节见 [适配器说明.md](适配器说明.md)。
+> 板端运行常见问题与排查决策。平台架构见 [architecture-and-runtime_CN.md](architecture-and-runtime_CN.md)；适配器细节见 [adapters_CN.md](adapters_CN.md)。
 
 ---
 
@@ -123,15 +125,15 @@ model.scrfd.path: ./model/scrfd.rknn
 
 - 视觉（YOLO/SCRFD）应正常；`LlmWorker` 在 `RequestInitializeAsync` 内 **stat 预检**，缺失则跳过 `rkllm_init`，进入仅视觉降级。
 - 终端：`SYS> 仅视觉模式（对话模型未加载）`；不应再出现「输入通道已就绪」或静态 `AI>` 问候。
-- 详见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md) §1、§5、[LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) §5–§6。
+- 详见 [architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) §1、§5、[llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) §5–§6。
 
 ### LLM 回答截断
 
-- 查 `max_new_tokens`；R1 类模型 thinking 段占 token → [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md)。
+- 查 `max_new_tokens`；R1 类模型 thinking 段占 token → [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md)。
 
 ### TTS 相关问题
 
-- 语音对话体验与 TTS 排障见 [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) § 日志与排障。
+- 语音对话体验与 TTS 排障见 [tts-melotts_CN.md](tts-melotts_CN.md) §12。
 
 ---
 

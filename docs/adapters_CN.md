@@ -1,3 +1,5 @@
+Language: **中文** | [English](adapters.md)
+
 # 适配器说明
 
 视觉与逻辑适配器速览；细节见各专题文档。
@@ -8,7 +10,7 @@
 
 - 正点原子 YOLOv5 三头 RKNN（`output num: 3`，`dims[1]=255`）。
 - 后处理：`yolo_postprocess.cpp` 固定解码 `output[0..2]`。
-- 排障见 [运行排障.md](运行排障.md) § 视觉模型排障。
+- 排障见 [troubleshooting_CN.md](troubleshooting_CN.md) § 视觉模型排障。
 
 ---
 
@@ -16,7 +18,7 @@
 
 - 9 路输出（`score_*` / `bbox_*` / `kps_*`），分组布局。
 - 后处理：`scrfd_postprocess.cpp` 中 `ResolveScrfdHeadOutputs`。
-- 排障见 [运行排障.md](运行排障.md) § 视觉模型排障。
+- 排障见 [troubleshooting_CN.md](troubleshooting_CN.md) § 视觉模型排障。
 
 ---
 
@@ -29,7 +31,7 @@
 | `rkllm_session.*` | `rkllm_init` / **`rkllm_run`（同步）** / `rkllm_abort` / `rkllm_destroy`；回调 NORMAL 直写 stdout |
 | `llm_worker.*` | 异步加载；`infer_thread_` 跑 `RunPromptSync`；`OnLlmChunk` 投递 TTS chunk event；主线程 `PollDeferred` 处理 |
 
-配置：`model.llm.*`。集成见 [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md)。
+配置：`model.llm.*`。集成见 [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md)。
 
 **两条输出路径：**
 
@@ -71,4 +73,4 @@ YAML：`model.tts.*`（与 `model.llm` 并列；启动仍要求 `model.llm.enabl
 
 `AudioPlayer` 使用常驻 **`gst-launch-1.0`** 管道，向 stdin 写入 float32 PCM（**非** 每段 `gst-play` 播 wav 文件）。
 
-设计与验收见 [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md)。
+设计与验收见 [tts-melotts_CN.md](tts-melotts_CN.md)。

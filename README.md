@@ -2,62 +2,46 @@
 
 # RK3588 Edge AI Inference Platform
 
-Edge AI **runtime platform** on Rockchip RK3588 NPU (ALIENTEK and compatible boards). The default reference app: live camera → NPU vision → on-device LLM chat and TTS after stable face detection—**everything runs on the board**.
+**Edge AI Runtime** on Rockchip RK3588 NPU (ALIENTEK and compatible boards, tuned via yaml). Main binary: **edgeai_platform_app**, driven by `runtime/config/default.yaml`. You need the `runtime/` build and **model files** under `model/` (`.rknn`, `.rkllm`, TTS lexicon/RKNN paths in yaml) on the board.
 
-Main binary: **edgeai_platform_app**, driven by `runtime/config/default.yaml`. You need the `runtime/` build output and RKNN / RKLLM weights under `model/`.
+The **default reference app** below matches the current `default.yaml` (`model.llm.enabled` and `model.tts.enabled` are true): camera vision, face-gated on-device chat, and TTS—all on the board. Other products can disable LLM/TTS or change slot policy without changing the platform core.
 
-## Pipeline
+## Default reference app
 
-Person approaches → YOLO (body) → SCRFD (face) → greeting / terminal chat, with live overlay preview.
+| Phase | What you see | What runs |
+|-------|----------------|-----------|
+| Startup | Preview window; `SYS>` loading / ready | Load yaml; optional RKLLM/TTS preload; sync YOLO init |
+| Idle / person | Person boxes; face boxes when someone is present | Scene debounce idle→person; SCRFD slot on in person |
+| Stable face | `AI>` greeting + speaker output | Static greeting via `SetBannerLine` + `PlayText` when `skip_static_greeting=false` |
+| User types `YOU>` | Short ack sound → streaming `AI>` → spoken answer | FastAck cached PCM (`model.tts.fast_ack`, ≤1s) → RKLLM side path → MeloTTS streaming; requires **gst-launch-1.0** |
+| Another `YOU>` | Previous speech stops; latest turn wins | `TtsWorker::Cancel` |
+| Face leaves | May still accept input in Grace; then rejected | Locked / Grace state machine |
+| Missing `.rkllm` | Preview only, no greeting or chat | Vision-only mode (`SYS>` notice) |
+| Exit | Window closes | ESC / Ctrl+C; release camera and LLM/TTS |
 
-Models start and stop by scene; the LLM runs on a separate thread and does not join the per-frame vision Preprocess→Inference→Postprocess path.
-
-## Runtime flow
-
-1. **Startup**: Load YAML and YOLO; preload RKLLM in the background when LLM is enabled.
-2. **Each frame**: Capture → run enabled vision slots → main thread draws boxes and shows the frame.
-3. **Person present**: Enable SCRFD; when both slots are on, face boxes take priority over YOLO person boxes.
-4. **Stable face**: Open the prompt gate and send a greeting; type at `YOU>`, stream reply at `AI>`.
-5. **Face lost**: Reject new prompts; finish the current reply; keep the model loaded.
-6. **Exit**: ESC or Ctrl+C; release camera, worker threads, and LLM.
-
-Terminal: `SYS>` / `YOU>` / `AI>` on stdout; `[INFO]` and similar on stderr.
+Terminal: `SYS>` / `YOU>` / `AI>` on stdout; `[INFO]` and similar on stderr. Prefixes and yaml switches: [docs/README.md](docs/README.md).
 
 ## Architecture
 
 ![EdgeAI architecture](assets/architecture.svg)
 
-*Diagram labels are in Chinese; directory paths match the repository.*
+*Diagram labels are in Chinese; directory paths match this repository.*
 
-Solid lines: video frames and inference results. Dashed lines: YAML config and person/face detection signals. The LLM generates only when the gate is open, on an independent thread under `adapters/llm/`.
+Solid lines: video frames and inference results. Dashed lines: YAML and person/face signals. **LLM and TTS are logic side paths** (`adapters/llm`, `adapters/tts`), not part of per-frame Preprocess→Inference→Postprocess.
 
 | Layer | Directory | Role |
 |-------|-----------|------|
 | Entry | `runtime/app/` | Load YAML; start Pipeline and ModelCoordinator |
-| Capture / display | `runtime/capture/` `runtime/display/` | Frame capture & rotation; overlays; OpenCV window |
-| Engine | `runtime/engine/` | Preprocess → inference → main-thread display |
+| Capture / display | `runtime/capture/` `runtime/display/` | Frames, rotation, overlays, OpenCV preview |
+| Engine | `runtime/engine/` | Preprocess → inference → main-thread display and stdin |
 | Policy | `runtime/platform/` | Scene switching, face gate, auto greeting |
-| Models | `runtime/adapters/` | yolo / scrfd / llm / tts plugins; slots enabled on demand |
+| Models | `runtime/adapters/` | yolo / scrfd / llm / tts plugins, enabled on demand |
 
-Full architecture: [docs/系统架构与运行逻辑.md](docs/系统架构与运行逻辑.md) (Chinese).
-
-## Layout
-
-```text
-edgeai_platform/
-├── model/          # yolov5.rknn, scrfd.rknn, .rkllm
-├── docs/           # platform docs (see docs/README.md)
-├── assets/         # architecture diagram, etc.
-├── runtime/
-│   ├── app/ engine/ platform/ capture/ display/
-│   ├── adapters/yolo|scrfd|llm|tts/
-│   └── config/default.yaml
-└── verify/         # PC-side verification script
-```
+Startup order, threads, and design trade-offs: [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md) (§5–7; complements the diagram above).
 
 ## Quick start
 
-Target: ALIENTEK RK3588, toolchain `/opt/atk-dlrk3588-toolchain`, models in `model/`.
+**Environment**: ALIENTEK RK3588, toolchain `/opt/atk-dlrk3588-toolchain`; place model files under `model/`.
 
 ```bash
 cd runtime && ./build-linux.sh
@@ -65,7 +49,42 @@ cd install/rk3588_linux_aarch64/rknn_edgeai_platform
 ./edgeai_platform_app config/default.yaml
 ```
 
-Adjust camera device, model paths, and `model.llm.enabled` in `config/default.yaml` for your board.
+Adjust camera, model paths, and LLM/TTS switches in `config/default.yaml` for your board.
+
+## Configuration
+
+| Key | Effect |
+|-----|--------|
+| `model.llm.enabled` | Dialogue pipeline; vision-only if `.rkllm` is missing |
+| `model.tts.enabled` | Speech output (still requires `model.llm.enabled` at startup) |
+| `model.tts.skip_static_greeting` | Skip static greeting TTS after stable face when `true` |
+| Model paths | `model.yolo.path`, `model.scrfd.path`, `model.llm.path`, `model.tts.*` |
+
+See comments in `runtime/config/default.yaml`.
+
+## Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/README.md](docs/README.md) | **Documentation index**, terminal conventions, topic navigation |
+| [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md) | Startup order, Pipeline, slots, platform design |
+| [docs/tts-melotts.md](docs/tts-melotts.md) | TTS design and acceptance |
+| [docs/llm-model-coordinator.md](docs/llm-model-coordinator.md) | RKLLM, gate, terminal UX |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | YOLO/SCRFD paths and RKNN outputs, exit/crash; TTS see TTS doc |
+
+## Repository layout
+
+```text
+edgeai_platform/
+├── model/          # yolov5.rknn, scrfd.rknn, .rkllm, TTS encoder/decoder RKNN, lexicon.txt, tokens.txt
+├── docs/           # platform docs (entry: docs/README.md)
+├── assets/         # architecture diagram, etc.
+├── runtime/
+│   ├── app/ engine/ platform/ capture/ display/
+│   ├── adapters/yolo|scrfd|llm|tts/
+│   └── config/default.yaml
+└── verify/         # PC-side RKNN checks, not used on board
+```
 
 ## License
 
