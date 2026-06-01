@@ -44,7 +44,7 @@
 ```text
 edgeai_platform/
 ├── model/          # yolov5.rknn、scrfd.rknn、.rkllm
-├── docs/           # 平台文档（索引 docs/doc-readme.md）
+├── docs/           # 平台文档（索引 docs/README.md）
 ├── assets/         # 架构图等
 ├── runtime/
 │   ├── app/ engine/ platform/ capture/ display/

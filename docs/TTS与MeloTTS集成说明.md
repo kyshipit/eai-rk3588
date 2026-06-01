@@ -52,12 +52,6 @@
 | 正式回答可能稍晚 | 宁可晚播，也不能开播后卡断 |
 | TTS 活跃时视觉可降载 | 只跳 yolo inference，scrfd / 门控保持 |
 
-### 不再作为验收的旧标准
-
-- 「不等待全文 FINISH 就开始分块播报」不是充分标准；
-- 「短答 ≤2s、长答 ≤4s」不能代表机器人首响体验；
-- `emit_timeout_ms` / `TtsStreamBuffer` 时间硬切 **不再作为正式设计**。
-
 板端需已安装 **`gst-launch-1.0`**（GStreamer 管道播放）。
 
 ---
@@ -73,8 +67,6 @@
 | `audio_player.*` | 单实例 `gst-launch-1.0` 管道持续写 float32 PCM |
 | `lexicon.hpp` / `split.hpp` | 词表；英文 OOV 按字母回退 |
 | `tts_text_sanitizer.*` | 仅 `max_speak_chars` 截断 |
-
-> **实现状态**：目标架构为 FastAck + TtsIngress + TtsPlanner + FormalAnswerBuffer。过渡期代码中 `tts_stream_buffer.*` 仍承担 ingress/规划职责，待迁移后删除。
 
 与平台关系：
 
@@ -103,7 +95,6 @@ YOU> accepted
 说明：
 
 - 终端流式显示 **含 thinking**；TTS **仅播** thinking 之外的可见正文（屏显 ≠ 耳上）。
-- `reply_accumulator_` 仍供调试/扩展，**不是** TTS 主路径。
 - 新 `YOU>` / `Abort` / `Stop` → `TtsWorker::Cancel`。
 
 ---
@@ -129,18 +120,17 @@ YOU> accepted
 
 ## 7. TtsPlanner
 
-**目的**：替代 `TtsStreamBuffer` 的时间硬切，按语言语义规划正式回答片段。
+按语言语义规划正式回答片段；LLM 流式输出时在 `Feed` 中调用 `TryEmitSegments`，`FINISH` 时 `Flush` 尾段。
 
 | 语言 | 策略 |
 |------|------|
-| 中文 | 按句界/短语合并，避免过短块 |
-| 英文 | **禁止** token/word 级切分；合并到短语或子句（最小字符/音节阈值） |
+| 中文 | 句界优先；达 `zh_max_chars` 或 `zh_min_chars` + `fallback_timeout_ms` 后 emit |
+| 英文 | **禁止** word 级单独合成；达 `en_max_words` 或 `en_min_words` + fallback 后 emit |
 
 原则：
 
-- 单次送入 Melo 的片段应足够长，使 PCM 播放时长 ≥ 单次 decoder 开销；
-- 英文 LLM 输出为 word 级 token 时，Planner 须 coalesce 后再合成；
-- `emit_timeout_ms` 仅作 fallback，**不是**主体验参数。
+- 单次送入 Melo 的文本应足够长（`TtsWorker::CoalesceFormalAnswerLocked` 再合并），使 PCM 播放时长 ≥ 单次 decoder（~1.6–2.2s）开销；
+- 英文 LLM 为 word 级 token 时，Planner + 合成侧合并后再送 RKNN。
 
 ---
 
@@ -203,6 +193,9 @@ YOU> accepted
 | `qos.enable_visual_throttle` | TTS 低水位时跳 yolo inference |
 | `qos.low_watermark_chunks` / `high_watermark_chunks` | PCM 队列水位阈值 |
 | `qos.min_start_pcm_chunks` | 正式回答开播前缓冲段数 |
+| `planner.zh_min_chars` / `zh_max_chars` | 中文 emit 阈值 |
+| `planner.en_min_words` / `en_max_words` | 英文 emit 阈值 |
+| `planner.fallback_timeout_ms` | 缓冲未达上限时的超时 emit |
 
 ---
 
@@ -220,45 +213,11 @@ YOU> accepted
 
 1. 短反馈是否在 ≤1s 内播放（FastAck 缓存是否就绪）；
 2. 正式回答 `underrun` 计数；
-3. 英文是否 word 级切分（查 Planner / 过渡期 `TtsStreamBuffer` 阈值）；
-4. NPU 争用（yolo-skip 是否生效）；
+3. 是否 decoder 调用过密（日志多次 `inference_decoder_model` / 段间静音）→ 调高 `planner.*` 阈值或检查 `CoalesceFormalAnswer`；
+4. NPU 争用（`tts yolo-skip on` 是否在对话期生效）；
 5. OOV 吞词（查 lexicon）。
 
-平台级 TTS 摘要见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md) §9。
-
----
-
-## 13. 历史问题与设计取舍
-
-### 旁路位置是对的
-
-TTS 不进视觉 Pipeline、与 RKLLM 并列旁路，避免拖慢 YOLO/SCRFD 帧率。播放层常驻 `gst-launch` 管道、合成/播放双线程也是合理选择。
-
-### 真正的问题：目标与范式错配
-
-早期实现是「文本流式 + 块级 RKNN 合成 + 时间硬切」的伪流式：
-
-- `TtsStreamBuffer` 的 `emit_timeout_ms` 时间硬切，英文 token 级输出被切成单词/短语，每块触发 ~2s decoder → **一词一卡**；
-- `min_start_pcm_chunks=2` 在无 FastAck 时导致首声等 4s+；
-- QoS 低水位保护若通过 `DisableSlot("yolo")` 会破坏参考应用状态机（`mode:none`）。
-
-**结论**：播放层不是主矛盾；主矛盾是 **Melo decoder 慢 + 文本切太碎 + 缺少 FastAck 层**。
-
-### 为什么需要 FastAck + Planner + Buffer
-
-| 组件 | 解决什么 |
-|------|----------|
-| FastAck | ≤1s 短反馈，掩盖 decoder 首包延迟 |
-| TtsPlanner | 语言感知合并，避免英文 word 级合成 |
-| FormalAnswerBuffer | 开播前攒缓冲，开播后 `underrun=0` |
-| 跳 yolo inference | NPU 让路，不破坏门控 |
-
-### 仍开放（非本验收范围）
-
-- 音素/token 级真流式 PCM；
-- VAD/ASR/AEC 与语音 barge-in；
-- 更快 TTS 模型或预合成话术库扩展；
-- `model.tts` 配置从 `model.llm` 解耦（当前启动仍要求 `llm.enabled`）。
+平台级 TTS 摘要见 [系统架构与运行逻辑.md](系统架构与运行逻辑.md) §8。
 
 ---
 

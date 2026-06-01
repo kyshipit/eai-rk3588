@@ -237,13 +237,15 @@ void TtsPlanner::TryEmitSegments(std::vector<std::string>& segments_out) {
             const std::string candidate = pending_.substr(0, sent_end);
             if (mostly_en) {
                 const size_t words = CountEnglishWords(cfg_.en_max_words + 4);
-                if (words >= cfg_.en_min_words || words >= cfg_.en_max_words) {
+                if (words >= cfg_.en_max_words ||
+                    (words >= cfg_.en_min_words && elapsed_ms >= cfg_.fallback_timeout_ms)) {
                     emit_candidate(std::move(candidate), sent_end);
                     continue;
                 }
             } else {
                 const size_t char_len = utf8_strlen(candidate);
-                if (char_len >= cfg_.zh_min_chars || char_len >= cfg_.zh_max_chars) {
+                if (char_len >= cfg_.zh_max_chars ||
+                    (char_len >= cfg_.zh_min_chars && elapsed_ms >= cfg_.fallback_timeout_ms)) {
                     emit_candidate(std::move(candidate), sent_end);
                     continue;
                 }
@@ -310,7 +312,7 @@ void TtsPlanner::TryEmitSegments(std::vector<std::string>& segments_out) {
     }
 }
 
-// 喂入可见正文增量。
+// 喂入可见正文增量，满足阈值时经 TryEmitSegments 流式切出片段。
 void TtsPlanner::Feed(const std::string& visible_delta, std::vector<std::string>& segments_out) {
     if (visible_delta.empty()) {
         return;

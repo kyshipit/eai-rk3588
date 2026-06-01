@@ -46,7 +46,7 @@ Full architecture: [docs/系统架构与运行逻辑.md](docs/系统架构与运
 ```text
 edgeai_platform/
 ├── model/          # yolov5.rknn, scrfd.rknn, .rkllm
-├── docs/           # platform docs (see docs/doc-readme.md)
+├── docs/           # platform docs (see docs/README.md)
 ├── assets/         # architecture diagram, etc.
 ├── runtime/
 │   ├── app/ engine/ platform/ capture/ display/

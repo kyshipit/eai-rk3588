@@ -219,7 +219,7 @@ void LlmWorker::DropQueuedPrompts() {
     // 保留 pending_text_/banner_pending_，确保正在生成的一句仍可正常收尾输出。
 }
 
-// 主线程消费回调线程投递的 TTS 事件，经 Ingress/Planner 规划后下发 FormalAnswer。
+// 主线程消费回调线程投递的 TTS 事件，经 Ingress/Planner 规划后逐段下发 FormalAnswer。
 void LlmWorker::DrainDeferredTtsEvents() {
     TtsWorker* tts = nullptr;
     std::vector<std::string> segments;
@@ -261,7 +261,9 @@ void LlmWorker::DrainDeferredTtsEvents() {
         }
     }
     for (const auto& segment : segments) {
-        tts->EnqueueFormalAnswer(segment);
+        if (!segment.empty()) {
+            tts->EnqueueFormalAnswer(segment);
+        }
     }
 }
 

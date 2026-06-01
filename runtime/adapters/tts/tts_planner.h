@@ -24,7 +24,7 @@ public:
     // 写入规划参数。
     void Configure(const TtsPlannerConfig& cfg);
 
-    // 喂入可见正文增量；可播报片段追加到 segments_out。
+    // 喂入可见正文增量；达阈值时流式切出片段写入 segments_out，尾段留待 Flush。
     void Feed(const std::string& visible_delta, std::vector<std::string>& segments_out);
 
     // FINISH 时 flush 尾段。

@@ -4,7 +4,7 @@
 
 - 本文说明 RKLLM（DeepSeek 等 `.rkllm`）在 runtime 中的目录、与视觉流水线的边界、人脸门控与会话状态机，以及麦克风/按键扩展方式。
 - LLM 为**逻辑层能力**：**不**实现 `IModelAdapter`，**不**进入 `RunEnabledSlots` / 每帧 `Preprocess→Inference→Postprocess`。
-- 对话体验目标已升级为“长文本不等待全文、持续恢复播报”，因此本文同时约束 LLM 与 TTS 的协同边界与会话抢占语义。
+- TTS 为并列旁路：LLM chunk 经 `OnLlmChunk` 投递事件，主线程 `PollDeferred` → Ingress/Planner → `EnqueueFormalAnswer`（详见 TTS 主文档）。
 - 实现以当前代码为准；§4 为产品行为定稿，§7 为未完成项。
 
 **相关代码：**
@@ -24,7 +24,6 @@
 | 项 | 说明 |
 |----|------|
 | 一致性 | 与 `adapters/yolo`、`scrfd` 同级，统一编入 `edgeai_platform_app` |
-| 已删除 | 独立 stdin demo / `atk_deepseek_*` 目录（不再维护） |
 | API | `rkllm_init` / **`rkllm_run`（同步）** / callback → `rkllm_session` |
 | 第三方 | `runtime/3rdparty/rkllm/`：`rkllm.h`、`librkllmrt.so`、`libgomp.so` |
 
@@ -39,7 +38,6 @@
 | **A. `adapters/llm` + `LlmGreeting` + 独立推理线程** | **采用** |
 | B. `IModelAdapter` 每帧 llm 槽 | 不推荐 |
 | C. 在协调器或主循环内同步 `rkllm_run` | 不推荐；现为 **`infer_thread_` 内 `rkllm_run`** |
-| D. 独立进程 demo | 已删除 |
 | E. 云端 API | 超出本阶段 |
 
 ---
@@ -91,11 +89,11 @@ flowchart TB
 【自动问候】人脸稳定 → TryAutoPromptOnStableFace → SetBannerLine(auto_greeting_text_) → stdout AI>
   （不经 rkllm_run；busy 时不插入）
 
-【用户对话】stdin YOU> → SubmitUserPrompt → SubmitPrompt → RunPromptNow
+【用户对话】stdin YOU> → SubmitUserPrompt → SubmitPrompt（Cancel + PlayFastAck）
     → infer_thread_: fprintf("AI> ") → RunPromptSync → rkllm_run
     → StaticCallback: NORMAL printf("%s"); FINISH printf("\n")
-    → OnLlmChunk: 仅 FINISH/ERROR，排队 deferred
-    → PollDeferred: 下一句 RunPromptNow
+    → OnLlmChunk: NORMAL/FINISH 投递 TTS chunk event；FINISH 时排队 deferred
+    → PollDeferred: DrainDeferredTtsEvents → TTS；下一句 RunPromptNow
 ```
 
 | 文件 | 角色 |
@@ -112,32 +110,18 @@ flowchart TB
 
 ---
 
-## 4.1 与 TTS 的低时延协同（现状 + 目标）
-
-### 现状链路
+## 4.1 与 TTS 协同
 
 ```text
-YOU> -> LlmGreeting::SubmitUserPrompt -> LlmWorker::SubmitPrompt
-     -> rkllm_run (stdout 流式 AI>，含 thinking 显示)
-     -> TtsStreamBuffer（跳过 thinking）-> EnqueueSentence -> 块级 RKNN + gst-launch PCM
+YOU> -> SubmitPrompt (Cancel + PlayFastAck)
+     -> rkllm_run -> OnLlmChunk (NORMAL/FINISH) -> tts_events_
+     -> PollDeferred -> TtsIngress -> TtsPlanner -> EnqueueFormalAnswer
+     -> TtsWorker 合成/播放（详见 TTS 主文档）
 ```
 
-- LLM 仍负责对话门控、busy 排队、`AbortActiveGeneration` 与会话状态驱动。
-- TTS 与 LLM 是并列逻辑旁路，不进入视觉槽，但共享板端资源（NPU/CPU/带宽）。
-
-### 目标约束（必须满足）
-
-1. **长文本不等待全文**：LLM 输出进入事件驱动分块，按句界 + 时间双触发持续下发 TTS（**已实现**）。  
-2. **无明显截断等待感**：播放器使用 `gst-launch` PCM 管道（**已实现**）；合成侧仍为块级 RKNN，NPU 争用时可能短静音。  
-3. **会话级抢占一致性**：每次 `YOU>` 生成新会话标识；旧会话文本块/PCM 必须可被立即丢弃。  
-4. **LLM 主责不变**：人脸门控、输入接受策略、初始化失败降级策略仍由 LLM 侧统一裁决。  
-5. **并发可控**：对话期按负载调节分块与合成频率，避免 LLM 与 TTS 互相拖慢导致“长文恢复慢”。
-
-### 边界约定
-
-- `ModelCoordinator` 继续只管视觉槽启停与每帧信号，不承担语音排程。  
-- `LlmGreeting` 继续作为对话入口与门控裁决层；TTS 仅消费“可播正文”。  
-- TTS 内部如何合成/播放并行，不改变 `SubmitPrompt` / `Cancel` / `Abort` 的外部语义。
+- 每次 `YOU>`：`desired_tts_session_id_++`，丢弃旧代际文本/PCM。
+- `LlmGreeting` 管门控；TTS 仅消费 Ingress 过滤后的可见正文。
+- 验收与排障见 [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md)。
 
 ---
 
@@ -240,8 +224,6 @@ LlmPromptSource: FaceAppear | FaceReenter | Microphone | Button | Command
 |------|------|
 | 按键输入 | `Button` source |
 | SCRFD 五点 overlay | 后处理已有坐标，绘制待接 |
-| TTS 低时延架构落地 | 真流式 PCM 播放、合成/播放并行流水线、句界+时间双触发分块、会话级抢占（见 [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md)） |
-| 对话期减视觉负载 | 可选：对话中降帧或缩槽 |
 | 日志插屏 | 状态迁移多为 `LogDebug`；FPS 等 `LogInfo` 仍可能频繁 |
 
 ---
@@ -311,8 +293,8 @@ model:
 | [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) | TTS/语音对话设计与验收 |
 | [适配器说明.md](适配器说明.md) § LLM | LLM 适配器速览 |
 | [运行排障.md](运行排障.md) | 视觉模型、退出、崩溃排障 |
-| [doc-readme.md](doc-readme.md) | docs 索引 |
+| [docs/README.md](docs/README.md) | docs 索引 |
 
 ---
 
-*文档版本：2026-05-30；对齐 `LlmWorker` stat 预检、仅视觉降级 UX，以及“长文本不等待全文”的 LLM-TTS 协同约束。*
+*以 `runtime/` 代码为准。*

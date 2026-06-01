@@ -88,6 +88,8 @@ private:
     void EnqueueCleaned(std::string cleaned, TextJobKind kind);
     // 合并同一代际下少量连续文本块，避免过短分句造成过多 RKNN 往返。
     std::string CoalescePendingTextLocked(TextJob first);
+    // 合并连续 FormalAnswer 块至 split_min_chars 量级，单次 Melo 产出多句 PCM。
+    std::string CoalesceFormalAnswerLocked(TextJob first);
     // 将单个 PCM 片段入队；若代际已切换则返回 false 终止后续合成。
     bool PushPcmChunk(uint64_t generation, std::vector<float> pcm,
                       PcmJobKind kind = PcmJobKind::Formal);
@@ -101,7 +103,7 @@ private:
     void RefreshProtectionLatchUnlocked();
     // 锁内判断当前是否处于活跃播报阶段。
     bool IsPlaybackActiveUnlocked() const;
-    // 合成线程：FIFO 取文本并产出 PCM，同轮多块合并后再推理。
+    // 合成线程：FIFO 取文本；FormalAnswer 合并后推理，Static 小块合并。
     void SynthesizeLoop();
     // 播放线程：FIFO 取 PCM 连续播放。
     void PlaybackLoop();

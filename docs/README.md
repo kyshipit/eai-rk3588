@@ -4,7 +4,7 @@
 
 ## 推荐阅读顺序
 
-1. [系统架构与运行逻辑.md](系统架构与运行逻辑.md) — 平台主文档：架构、模块、启动、运行、接续开发
+1. [系统架构与运行逻辑.md](系统架构与运行逻辑.md) — 平台主文档：分层、启动/运行时、设计取舍（LLM/TTS 细节见专文）
 2. [TTS与MeloTTS集成说明.md](TTS与MeloTTS集成说明.md) — 改语音/TTS 时读（**唯一验收依据**）
 3. [LLM与ModelCoordinator集成.md](LLM与ModelCoordinator集成.md) — 改对话/门控时读
 4. [适配器说明.md](适配器说明.md) — 查 adapter 文件职责

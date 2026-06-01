@@ -401,6 +401,25 @@ std::string TtsWorker::CoalescePendingTextLocked(TextJob first) {
     return merged;
 }
 
+// 合并连续 FormalAnswer 至约 split_min_chars*8 字节，一次 decoder 批次产出多句 PCM。
+std::string TtsWorker::CoalesceFormalAnswerLocked(TextJob first) {
+    const int split_min = std::max(4, cfg_.split_min_chars);
+    const size_t max_bytes = static_cast<size_t>(split_min * 8);
+    std::string merged = std::move(first.text);
+    while (!text_queue_.empty()) {
+        const TextJob& next = text_queue_.front();
+        if (next.generation != first.generation || next.kind != TextJobKind::FormalAnswer) {
+            break;
+        }
+        if (merged.size() + next.text.size() > max_bytes) {
+            break;
+        }
+        merged += next.text;
+        text_queue_.pop_front();
+    }
+    return merged;
+}
+
 // 将合成出来的单个 PCM 片段压入播放队列；代际不匹配时拒收并终止本轮。
 bool TtsWorker::PushPcmChunk(uint64_t generation, std::vector<float> pcm, PcmJobKind kind) {
     if (pcm.empty()) {
@@ -431,7 +450,7 @@ bool TtsWorker::PushPcmChunk(uint64_t generation, std::vector<float> pcm, PcmJob
     return true;
 }
 
-// 合成线程：FIFO 取文本并产出 PCM，同轮多块合并后再推理。
+// 合成线程：FIFO 取文本并产出 PCM；FormalAnswer 先合并再推理以减少 decoder 往返。
 void TtsWorker::SynthesizeLoop() {
     while (true) {
         TextJob job;
@@ -445,7 +464,34 @@ void TtsWorker::SynthesizeLoop() {
             }
             job = std::move(text_queue_.front());
             text_queue_.pop_front();
-            if (job.kind != TextJobKind::FormalAnswer) {
+            if (job.kind == TextJobKind::FormalAnswer) {
+                const size_t min_batch =
+                    static_cast<size_t>(std::max(24, cfg_.split_min_chars * 3));
+                job.text = CoalesceFormalAnswerLocked(std::move(job));
+                for (int attempt = 0; attempt < 2 && job.text.size() < min_batch && !stop_;
+                     ++attempt) {
+                    const bool got_more = cv_.wait_for(
+                        lock, std::chrono::milliseconds(120), [this, &job]() {
+                            if (stop_) {
+                                return true;
+                            }
+                            if (text_queue_.empty()) {
+                                return false;
+                            }
+                            const TextJob& next = text_queue_.front();
+                            return next.generation == job.generation &&
+                                   next.kind == TextJobKind::FormalAnswer;
+                        });
+                    if (!got_more) {
+                        break;
+                    }
+                    TextJob batch;
+                    batch.kind = TextJobKind::FormalAnswer;
+                    batch.generation = job.generation;
+                    batch.text = std::move(job.text);
+                    job.text = CoalesceFormalAnswerLocked(std::move(batch));
+                }
+            } else {
                 job.text = CoalescePendingTextLocked(std::move(job));
             }
             synth_busy_ = true;
@@ -457,12 +503,13 @@ void TtsWorker::SynthesizeLoop() {
             RefreshProtectionLatchUnlocked();
             continue;
         }
+        const uint64_t job_generation = job.generation;
+        const TextJobKind job_kind = job.kind;
         const bool emitted = session_.SynthesizeTextStreaming(
-            job.text, [this, generation = job.generation, pcm_kind = job.kind](
-                          std::vector<float>&& pcm_chunk) {
+            job.text, [this, job_generation, job_kind](std::vector<float>&& pcm_chunk) {
                 const PcmJobKind kind =
-                    (pcm_kind == TextJobKind::Static) ? PcmJobKind::Static : PcmJobKind::Formal;
-                return PushPcmChunk(generation, std::move(pcm_chunk), kind);
+                    (job_kind == TextJobKind::Static) ? PcmJobKind::Static : PcmJobKind::Formal;
+                return PushPcmChunk(job_generation, std::move(pcm_chunk), kind);
             });
         {
             std::lock_guard<std::mutex> lock(mutex_);
