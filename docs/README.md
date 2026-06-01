@@ -50,28 +50,17 @@ Vision-only: missing `.rkllm` or init failure → preview OK, `SYS> 仅视觉模
 
 ---
 
-## Navigation
+## Documentation index
 
-| Goal | Document |
-|------|----------|
-| **Understand the platform** | [architecture-and-runtime.md](architecture-and-runtime.md) |
-| **Dialogue / gate / RKLLM** | [llm-model-coordinator.md](llm-model-coordinator.md) |
-| **Speech / TTS acceptance** | [tts-melotts.md](tts-melotts.md) (**sole TTS acceptance doc**) |
-| **What each adapter file does** | [adapters.md](adapters.md) |
-| **Zero boxes, wrong path, hang, crash** | [troubleshooting.md](troubleshooting.md) |
-| **TTS gaps, underrun, FastAck silent** | [tts-melotts.md](tts-melotts.md) §12 |
+| Topic | Document | Notes |
+|-------|----------|-------|
+| Platform architecture and runtime | [architecture-and-runtime.md](architecture-and-runtime.md) | Layers, slots, startup order, Pipeline threads, trade-offs |
+| Speech / TTS | [tts-melotts.md](tts-melotts.md) | FastAck, Planner; **sole TTS acceptance doc**; gaps/underrun/FastAck see §12 |
+| Dialogue and face gate | [llm-model-coordinator.md](llm-model-coordinator.md) | RKLLM, gate FSM, terminal `YOU>` flow |
+| Adapter source | [adapters.md](adapters.md) | `adapters/{yolo,scrfd,llm,tts}/` file roles |
+| Troubleshooting | [troubleshooting.md](troubleshooting.md) | Zero boxes, wrong paths, exit/crash; TTS details in TTS doc |
 
----
-
-## Reading order
-
-1. **[architecture-and-runtime.md](architecture-and-runtime.md)** — layers, slots, startup, Pipeline threads, trade-offs  
-2. **[tts-melotts.md](tts-melotts.md)** — required for TTS work (FastAck, Planner, underrun acceptance)  
-3. **[llm-model-coordinator.md](llm-model-coordinator.md)** — gate FSM, terminal UX, `YOU>` flow  
-4. **[adapters.md](adapters.md)** — `adapters/{yolo,scrfd,llm,tts}/` file roles  
-5. **[troubleshooting.md](troubleshooting.md)** — when something breaks  
-
-Architecture diagram (same as root [README.md](../README.md) and [architecture-and-runtime.md](architecture-and-runtime.md) §1): [`assets/architecture.svg`](../assets/architecture.svg).
+Architecture diagram ([architecture-and-runtime.md](architecture-and-runtime.md) §1; also in root [README.md](../README.md)): [`assets/architecture.svg`](../assets/architecture.svg). (Chinese diagram: [`architecture_cn.svg`](../assets/architecture_cn.svg).)
 
 ---
 

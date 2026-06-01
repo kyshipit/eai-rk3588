@@ -20,6 +20,12 @@
 #include "melotts_engine.h"
 #include "easy_timer.h"
 #include "file_utils.h"
+#include "platform/logging.h"
+
+// 将 Melo 各阶段耗时写入 debug 日志，避免默认 info 下刷屏 stdout。
+static void LogMeloPhaseTime(TIMER& timer, const char* phase) {
+    LogDebug("MeloTTS: %s use: %.3f ms", phase, timer.get_time());
+}
 
 // 调试打印 RKNN 动态 shape 范围。
 static void dump_input_dynamic_range(rknn_input_range *dyn_range)
@@ -409,7 +415,7 @@ int inference_melotts_model(rknn_melotts_context_t *app_ctx, std::vector<int64_t
         return ret;
     }
     timer.tok();
-    timer.print_time("inference_encoder_model");
+    LogMeloPhaseTime(timer, "inference_encoder_model");
 
     // middle
     timer.tik();
@@ -418,7 +424,7 @@ int inference_melotts_model(rknn_melotts_context_t *app_ctx, std::vector<int64_t
     std::vector<float> attn(ATTN_SIZE, 0.0f);
     middle_process(logw, x_mask, attn, y_mask, speed, predicted_lengths_max_real);
     timer.tok();
-    timer.print_time("middle_process");
+    LogMeloPhaseTime(timer, "middle_process");
 
     // decoder
     timer.tik();
@@ -429,7 +435,7 @@ int inference_melotts_model(rknn_melotts_context_t *app_ctx, std::vector<int64_t
         return ret;
     }
     timer.tok();
-    timer.print_time("inference_decoder_model");
+    LogMeloPhaseTime(timer, "inference_decoder_model");
 
     return predicted_lengths_max_real;
 }

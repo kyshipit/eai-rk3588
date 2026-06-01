@@ -46,42 +46,43 @@ Adapter files: [adapters.md](adapters.md) § LLM.
 
 ## 3. Architecture
 
+**Per-frame · main thread (`flowchart LR`)**
+
 ```mermaid
-flowchart TB
-    subgraph vision [Per-frame vision NPU]
-        YOLO[YOLO]
-        SCRFD[SCRFD]
-        Pipe[Pipeline]
-    end
-
-    subgraph policy [End-of-frame policy]
-        MC[ModelCoordinator]
-        Greet[LlmGreeting]
-    end
-
-    subgraph llm [Logic layer resident]
-        Worker[LlmWorker]
-        RK[RkllmSession]
-    end
-
-    subgraph io [Terminal]
-        Mic[stdin YOU]
-        Ai[stdout AI]
-    end
-
-    SCRFD --> MC
-    MC --> Greet
-    Greet -->|user text SubmitPrompt| Worker
-    Mic --> Greet
-    Worker --> RK
-    RK -->|NORMAL printf| Ai
-    RK -->|FINISH ERROR| Worker
-    Worker -->|PollDeferred| Worker
-    Greet -->|static greet SetBannerLine| Ai
+flowchart LR
+    Pipe[Pipeline] --> SCRFD[SCRFD]
+    SCRFD --> MC[ModelCoordinator]
+    MC -->|UpdateAfterFrame Update| Greet[LlmGreeting]
+    Greet -->|PollDeferred| Worker[LlmWorker]
+    Greet -->|PollInitState| TTS[TtsWorker]
 ```
 
-- **Auto greeting** does not use `Worker→RK` above (see §4.1).
-- `ModelCoordinator::UpdateAfterFrame` calls `LlmGreeting::Update`; `llm_greeting_.PollDeferred()` finishes init and runs the next queued prompt.
+**User dialogue · `infer_thread_` (`sequenceDiagram`)**
+
+```mermaid
+sequenceDiagram
+    participant YOU as stdin YOU
+    participant Greet as LlmGreeting
+    participant Worker as LlmWorker
+    participant Infer as infer_thread_
+    participant RK as RkllmSession
+    participant AI as stdout AI
+    participant TTS as TtsWorker
+
+    YOU->>Greet: SubmitPrompt
+    Greet->>Worker: queue
+    Worker->>Infer: RunPromptNow
+    Infer->>RK: rkllm_run
+    RK-->>AI: NORMAL printf
+    RK-->>Worker: NORMAL callback
+    Worker->>Worker: OnLlmChunk enqueue
+    Greet->>Worker: PollDeferred
+    Worker->>TTS: DrainDeferredTts
+```
+
+- **Auto greeting**: stable face → `SetBannerLine` → `stdout AI>` (not via `Infer` / `rkllm_run`; see §4.1).
+- **End of each frame** (main thread): `ModelCoordinator::UpdateAfterFrame` → `LlmGreeting::Update` + `LlmGreeting::PollDeferred()` → `LlmWorker::PollDeferred()` (`PollInitState`, `DrainDeferredTtsEvents`, deferred/pending next `RunPromptNow`); same frame also runs `TtsWorker::PollInitState()` and `TryOpenDialogueIfReady()` inside `LlmGreeting`.
+- **RK callbacks** run on `infer_thread_`; TTS and the next prompt are consumed only in main-thread `PollDeferred`, avoiding races with stdout and the input gate.
 
 ---
 
@@ -103,7 +104,7 @@ flowchart TB
 | `rkllm_session.cpp` | Sole `rkllm_*` caller; `RunPromptSync`; callbacks to stdout |
 | `llm_worker.cpp` | Async `rkllm_init` (**stat first**); `IsLoadFailed`; `infer_thread_`; `SubmitPrompt` queue |
 | `llm_greeting.cpp` | Locked/Arming/Active/Grace; gate; static greet; **vision-only** UX |
-| `model_coordinator.cpp` | Vision slots; per-frame `PollDeferred` |
+| `model_coordinator.cpp` | Vision slots; per-frame `llm_greeting_.PollDeferred()` |
 | `pipeline.cpp` | Terminal `YOU>` |
 
 **InitOnce:** After first successful `rkllm_init`, model stays loaded; face leave does **not** `rkllm_destroy`. Async load via `std::async` affects cold start only.
@@ -138,14 +139,16 @@ YOU> -> SubmitPrompt (Cancel + PlayFastAck)
 
 **`SYS>` vs LLM state (`model.llm.enabled=true`)**
 
-| When | Message (Chinese in product) |
-|------|------------------------------|
-| Missing file / `rkllm_init` fail | Vision-only, model not loaded |
-| `Pipeline::Run` while loading | Model loading, please wait |
-| `Pipeline::Run` when Ready | Input channel ready after stable face |
-| Async init OK (`PollInitState`) | Model ready, input after stable face |
-| `YOU>` when `IsLoadFailed` | Dialogue unavailable (once per session) |
-| Gate closed (no stable face) | No stable face, input rejected |
+Product strings are Chinese on the terminal (same as [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) §5 and §9 below).
+
+| When | Product message | Summary (EN) |
+|------|-----------------|--------------|
+| Missing file / `rkllm_init` fail | `仅视觉模式（对话模型未加载）` | Vision-only; dialogue model not loaded |
+| `Pipeline::Run` while loading | `对话模型加载中，请稍候` | Model loading, please wait |
+| `Pipeline::Run` when Ready | `输入通道已就绪，人脸稳定后可对话` | Input channel ready after stable face |
+| Async init OK (`PollInitState`) | `对话模型已就绪，人脸稳定后可输入` | Model ready; input after stable face |
+| `YOU>` when `IsLoadFailed` | `对话不可用（模型未加载）` | Dialogue unavailable (once per session) |
+| Gate closed (no stable face) | `当前未检测到稳定人脸，暂不接收对话输入` | No stable face; input rejected |
 
 On `Failed`, **no repeat** startup `SYS>` (precheck/init already logged once).
 
@@ -283,7 +286,7 @@ Diagnostics on **stderr**; session on **stdout**.
 3. `cd runtime && ./build-linux.sh`.
 4. `cd install/rk3588_linux_aarch64/rknn_edgeai_platform && ./edgeai_platform_app config/default.yaml`.
 5. Expected (model ready): `scene -> person` → `scrfd` in slots → one `rkllm_init ok` → stable face → static `AI>` → `YOU>` → streaming `AI>`.
-6. Missing `.rkllm`: vision-only `SYS>`; vision OK; no greet; `YOU>` rejected.
+6. Missing `.rkllm`: `SYS> 仅视觉模式（对话模型未加载）`; vision OK; no `AI>` greeting; `YOU>` shows dialogue unavailable (once per session).
 
 ---
 
@@ -291,10 +294,10 @@ Diagnostics on **stderr**; session on **stdout**.
 
 | Doc | Use |
 |-----|-----|
-| [architecture-and-runtime.md](architecture-and-runtime.md) | Platform overview, load order |
+| [architecture-and-runtime.md](architecture-and-runtime.md) | Platform overview, load order, continue development |
 | [tts-melotts.md](tts-melotts.md) | TTS design and acceptance |
 | [adapters.md](adapters.md) § LLM | LLM adapter cheat sheet |
-| [troubleshooting.md](troubleshooting.md) | Vision, exit, crash |
+| [troubleshooting.md](troubleshooting.md) | Zero boxes, wrong paths, exit/crash; TTS details in TTS doc |
 | [README.md](README.md) | Documentation index |
 
 ---

@@ -7,10 +7,13 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cctype>
 #include <cstdio>
+#include <mutex>
 #include <string>
+#include <vector>
 
 enum class LogLevel {
     Error = 0,
@@ -49,13 +52,81 @@ inline bool ShouldLog(LogLevel level) {
     return static_cast<int>(LogLevelStorage()) >= static_cast<int>(level);
 }
 
-// 诊断日志统一走 stderr，stdout 留给 SYS/YOU/AI> 与 RKLLM 流式 printf。
+// 诊断日志统一走 stderr，stdout 留给 SYS/YOU/AI> 与 RKLLM 流式输出。
 inline FILE* DiagnosticStream() {
     return stderr;
 }
 
-// 统一写普通日志前缀与正文。
+// RKLLM 正向 stdout 流式写 token 时为 true。
+inline std::atomic<bool>& LlmStdoutStreamActive() {
+    static std::atomic<bool> active{false};
+    return active;
+}
+
+inline std::mutex& DeferredDiagnosticMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+inline std::vector<std::string>& DeferredDiagnosticLines() {
+    static std::vector<std::string> lines;
+    return lines;
+}
+
+// 将 RKLLM 流式期间暂缓的 stderr 诊断行一次性写出。
+inline void FlushDeferredDiagnostics() {
+    std::vector<std::string> pending;
+    {
+        std::lock_guard<std::mutex> lock(DeferredDiagnosticMutex());
+        pending.swap(DeferredDiagnosticLines());
+    }
+    for (const std::string& line : pending) {
+        std::fputs(line.c_str(), DiagnosticStream());
+    }
+    if (!pending.empty()) {
+        std::fflush(DiagnosticStream());
+    }
+}
+
+inline void BeginLlmStdoutStream() {
+    LlmStdoutStreamActive().store(true, std::memory_order_release);
+}
+
+inline void EndLlmStdoutStream() {
+    if (!LlmStdoutStreamActive().exchange(false, std::memory_order_acq_rel)) {
+        return;
+    }
+    FlushDeferredDiagnostics();
+}
+
+struct LlmStdoutStreamGuard {
+    LlmStdoutStreamGuard() { BeginLlmStdoutStream(); }
+    ~LlmStdoutStreamGuard() { EndLlmStdoutStream(); }
+};
+
+// RKLLM token / AI> 前缀，只写 stdout。
+inline void SessionStdoutWrite(const char* text) {
+    if (!text || text[0] == '\0') {
+        return;
+    }
+    std::fputs(text, stdout);
+    std::fflush(stdout);
+}
+
+// 统一写普通日志前缀与正文（仅 stderr；流式期间先入队，不碰 stdout）。
 inline void LogWithPrefix(FILE* out, const char* prefix, const char* fmt, va_list args) {
+    if (LlmStdoutStreamActive().load(std::memory_order_acquire)) {
+        va_list args_copy;
+        va_copy(args_copy, args);
+        char body[4096];
+        body[0] = '\0';
+        std::vsnprintf(body, sizeof(body), fmt, args_copy);
+        va_end(args_copy);
+        std::string line = std::string(prefix) + body + "\n";
+        std::lock_guard<std::mutex> lock(DeferredDiagnosticMutex());
+        DeferredDiagnosticLines().push_back(std::move(line));
+        return;
+    }
     std::fprintf(out, "%s", prefix);
     std::vfprintf(out, fmt, args);
     std::fprintf(out, "\n");

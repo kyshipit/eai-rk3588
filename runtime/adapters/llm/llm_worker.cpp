@@ -387,8 +387,8 @@ bool LlmWorker::RunPromptNow(const std::string& user_text, LlmPromptSource src) 
 
     JoinInferThread();
     infer_thread_ = std::thread([this, user_text]() {
-        std::fprintf(stdout, "AI> ");
-        std::fflush(stdout);
+        LlmStdoutStreamGuard stream_guard;
+        SessionStdoutWrite("AI> ");
         {
             std::lock_guard<std::mutex> lock(mutex_);
             reply_accumulator_.clear();

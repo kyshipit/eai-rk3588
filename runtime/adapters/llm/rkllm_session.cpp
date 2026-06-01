@@ -170,11 +170,13 @@ void RkllmSession::StaticCallback(RKLLMResult* result, void* userdata, LLMCallSt
     }
 
     if (state == RKLLM_RUN_FINISH) {
-        std::printf("\n");
+        SessionStdoutWrite("\n");
+        EndLlmStdoutStream();
     } else if (state == RKLLM_RUN_ERROR) {
-        std::printf("\\run error\n");
+        SessionStdoutWrite("\\run error\n");
+        EndLlmStdoutStream();
     } else if (state == RKLLM_RUN_NORMAL && result && result->text) {
-        std::printf("%s", result->text);
+        SessionStdoutWrite(result->text);
         std::lock_guard<std::mutex> lock(self->reply_mutex_);
         if (self->reply_accumulator_) {
             *self->reply_accumulator_ += result->text;

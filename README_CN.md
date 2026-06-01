@@ -2,38 +2,42 @@
 
 # RK3588 Edge AI Inference Platform
 
-基于 Rockchip RK3588 NPU 的 **Edge AI Runtime**（正点原子等板型通过 yaml 适配）。主程序 **edgeai_platform_app**，由 `runtime/config/default.yaml` 驱动；运行需 `runtime/` 编译产物，并将 `model/` 下的**推理模型文件**（`.rknn`、`.rkllm` 及 TTS 词表/RKNN，路径见 yaml）部署到板端。
+**RK3588 板端 Edge AI 推理平台**：由 `runtime/config/default.yaml` 驱动，主程序 **edgeai_platform_app**（在 `runtime/` 编译）；须将 `runtime/` 安装产物与 `model/` 下推理模型部署到板端。编译与运行见下方「快速开始」。
 
-下文 **默认参考应用** 对应当前 `default.yaml`（`model.llm.enabled` 与 `model.tts.enabled` 均为 true）：摄像头视觉 + 人脸门控对话 + TTS，全部在板端完成。换业务可关 LLM/TTS 或改槽策略，平台内核不变。
+当前 **默认应用**（`default.yaml`）：摄像头视觉、人脸门控板端对话与 TTS；各阶段表现见下表。
 
-## 默认参考应用
+## 默认应用
 
-| 阶段 | 用户可见 | 后台要点 |
-|------|----------|----------|
-| 启动 | 预览窗；`SYS>` 模型加载中 / 就绪 | 读 yaml；预加载 RKLLM、TTS（可选）；同步 Init YOLO |
-| 待机 / 有人 | 人形框；有人后为人脸框 | 场景 idle→person 去抖；person 时启用 SCRFD |
-| 人脸稳定 | `AI>` 问候 + 扬声器播报 | 静态问候 `SetBannerLine` + `PlayText`（`skip_static_greeting=false` 时） |
+
+| 阶段          | 用户可见                     | 后台要点                                                                                   |
+| ----------- | ------------------------ | -------------------------------------------------------------------------------------- |
+| 启动          | 预览窗；`SYS>` 模型加载中 / 就绪    | 读 yaml；预加载 RKLLM、TTS（可选）；同步 Init YOLO                                                  |
+| 待机 / 有人     | 人形框；有人后为人脸框              | 场景 idle→person 去抖；person 时启用 SCRFD                                                     |
+| 人脸稳定        | `AI>` 问候 + 扬声器播报         | 静态问候 `SetBannerLine` + `PlayText`（`skip_static_greeting=false` 时）                      |
 | 用户输入 `YOU>` | 短反馈音 → 流式 `AI>` → 正式回答语音 | FastAck 预缓存短反馈（`model.tts.fast_ack`，≤1s）→ RKLLM 旁路 → MeloTTS 流式播报；需 **gst-launch-1.0** |
-| 再次 `YOU>` | 旧播报停止，只跟最新一轮 | `TtsWorker::Cancel` |
-| 人脸离开 | Grace 内或仍受理；超时后拒新输入 | Locked / Grace 状态机 |
-| 缺 `.rkllm` | 预览正常，无问候与对话 | 仅视觉模式（`SYS>` 提示） |
-| 退出 | 关窗 | ESC / Ctrl+C；释放摄像头与 LLM/TTS |
+| 再次 `YOU>`   | 旧播报停止，只跟最新一轮             | `TtsWorker::Cancel`                                                                    |
+| 人脸离开        | Grace 内或仍受理；超时后拒新输入      | Locked / Grace 状态机                                                                     |
+| 缺 `.rkllm`  | 预览正常，无问候与对话              | 仅视觉模式（`SYS>` 提示）                                                                       |
+| 退出          | 关窗                       | ESC / Ctrl+C；释放摄像头与 LLM/TTS                                                            |
+
 
 终端：`SYS>` / `YOU>` / `AI>` 输出到 stdout；`[INFO]` 等诊断到 stderr。前缀与 yaml 开关详见 [docs/README_CN.md](docs/README_CN.md)。
 
-## 架构
+## 架构设计
 
-![EdgeAI 架构](assets/architecture_cn.svg)
+![Edge AI Runtime 架构](assets/architecture_cn.svg)
 
 实线：视频帧与推理结果。虚线：YAML 与人体/人脸信号。**LLM、TTS 均为逻辑旁路**（`adapters/llm`、`adapters/tts`），不参与每帧 `Preprocess→Inference→Postprocess`。
 
-| 层 | 目录 | 职责 |
-|----|------|------|
-| 入口 | `runtime/app/` | 读 YAML，启动 Pipeline 与 ModelCoordinator |
-| 采集 / 显示 | `runtime/capture/` `runtime/display/` | 采帧、旋转、画框、OpenCV 预览 |
-| 流水线 | `runtime/engine/` | 预处理 → 推理 → 主线程显示与 stdin |
-| 策略 | `runtime/platform/` | 场景切换、人脸门控、自动问候 |
-| 模型 | `runtime/adapters/` | yolo / scrfd / llm / tts 插件，按槽与配置启停 |
+
+| 层       | 目录                                    | 职责                                    |
+| ------- | ------------------------------------- | ------------------------------------- |
+| 入口      | `runtime/app/`                        | 读 YAML，启动 Pipeline 与 ModelCoordinator |
+| 采集 / 显示 | `runtime/capture/` `runtime/display/` | 采帧、旋转、画框、OpenCV 预览                    |
+| 引擎      | `runtime/engine/`                     | 预处理 → 推理 → 主线程显示与 stdin               |
+| 策略      | `runtime/platform/`                   | 场景切换、人脸门控、自动问候                        |
+| 模型      | `runtime/adapters/`                   | yolo / scrfd / llm / tts 插件，按槽与配置启停   |
+
 
 启动顺序、线程与设计取舍：[docs/architecture-and-runtime_CN.md](docs/architecture-and-runtime_CN.md)（§5–7，与上图互补）
 
@@ -51,24 +55,29 @@ cd install/rk3588_linux_aarch64/rknn_edgeai_platform
 
 ## 配置要点
 
-| 项 | 作用 |
-|----|------|
-| `model.llm.enabled` | 对话链路；缺 `.rkllm` 时仅视觉 |
-| `model.tts.enabled` | 语音播报（启动仍要求 `model.llm.enabled`） |
-| `model.tts.skip_static_greeting` | `true` 时不播人脸稳定后的静态问候 TTS |
-| 模型路径 | `model.yolo.path`、`model.scrfd.path`、`model.llm.path`、`model.tts.*` |
 
-完整字段见 `runtime/config/default.yaml` 注释。
+| 项                                | 作用                                                                  |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `model.llm.enabled`              | 对话链路；缺 `.rkllm` 时仅视觉                                                |
+| `model.tts.enabled`              | 语音播报（启动仍要求 `model.llm.enabled`）                                     |
+| `model.tts.skip_static_greeting` | `true` 时不播人脸稳定后的静态问候 TTS                                            |
+| 模型路径                             | `model.yolo.path`、`model.scrfd.path`、`model.llm.path`、`model.tts.*` |
 
-## 文档
 
-| 文档 | 用途 |
-|------|------|
-| [docs/README_CN.md](docs/README_CN.md) | **文档总索引**、终端约定、按主题导航 |
-| [docs/architecture-and-runtime_CN.md](docs/architecture-and-runtime_CN.md) | 启动顺序、Pipeline、槽与平台设计 |
-| [docs/tts-melotts_CN.md](docs/tts-melotts_CN.md) | TTS 设计与验收 |
-| [docs/llm-model-coordinator_CN.md](docs/llm-model-coordinator_CN.md) | RKLLM、门控、终端 UX |
-| [docs/troubleshooting_CN.md](docs/troubleshooting_CN.md) | YOLO/SCRFD 路径与 RKNN 输出、退出崩溃；TTS 见 TTS 专文 |
+**完整字段见** `runtime/config/default.yaml` 注释。
+
+## 文档说明
+
+
+| 文档                                                                         | 用途                                       |
+| -------------------------------------------------------------------------- | ---------------------------------------- |
+| [docs/README_CN.md](docs/README_CN.md)                                     | **文档索引**、编译/终端约定、按主题查专文                  |
+| [docs/architecture-and-runtime_CN.md](docs/architecture-and-runtime_CN.md) | 启动顺序、Pipeline、槽与平台设计                     |
+| [docs/tts-melotts_CN.md](docs/tts-melotts_CN.md)                           | TTS 设计与验收                                |
+| [docs/llm-model-coordinator_CN.md](docs/llm-model-coordinator_CN.md)       | RKLLM、门控、终端 UX                           |
+| [docs/troubleshooting_CN.md](docs/troubleshooting_CN.md)                   | 0 框、路径错、退出/崩溃；TTS 细节见 TTS 专文              |
+| [docs/adapters_CN.md](docs/adapters_CN.md)                               | `adapters/{yolo,scrfd,llm,tts}/` 文件职责          |
+
 
 ## 仓库结构
 

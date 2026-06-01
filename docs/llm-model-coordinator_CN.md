@@ -46,42 +46,43 @@ Language: **中文** | [English](llm-model-coordinator.md)
 
 ## 3. 架构
 
+**每帧 · 主线程（`flowchart LR`）**
+
 ```mermaid
-flowchart TB
-    subgraph vision [每帧视觉 NPU]
-        YOLO[YOLO]
-        SCRFD[SCRFD]
-        Pipe[Pipeline]
-    end
-
-    subgraph policy [每帧末策略]
-        MC[ModelCoordinator]
-        Greet[LlmGreeting]
-    end
-
-    subgraph llm [逻辑层 常驻]
-        Worker[LlmWorker]
-        RK[RkllmSession]
-    end
-
-    subgraph io [终端]
-        Mic[stdin YOU]
-        Ai[stdout AI]
-    end
-
-    SCRFD --> MC
-    MC --> Greet
-    Greet -->|用户文本 SubmitPrompt| Worker
-    Mic --> Greet
-    Worker --> RK
-    RK -->|NORMAL printf| Ai
-    RK -->|FINISH ERROR| Worker
-    Worker -->|PollDeferred| Worker
-    Greet -->|静态问候 SetBannerLine| Ai
+flowchart LR
+    Pipe[Pipeline] --> SCRFD[SCRFD]
+    SCRFD --> MC[ModelCoordinator]
+    MC -->|UpdateAfterFrame Update| Greet[LlmGreeting]
+    Greet -->|PollDeferred| Worker[LlmWorker]
+    Greet -->|PollInitState| TTS[TtsWorker]
 ```
 
-- **自动问候**不经过上图 `Worker→RK`（见 §4.1）。
-- `ModelCoordinator::UpdateAfterFrame` 末尾调用 `LlmGreeting::Update`；`llm_greeting_.PollDeferred()` 驱动 init 收尾与排队下一句。
+**用户对话 · `infer_thread_`（`sequenceDiagram`）**
+
+```mermaid
+sequenceDiagram
+    participant YOU as stdin YOU
+    participant Greet as LlmGreeting
+    participant Worker as LlmWorker
+    participant Infer as infer_thread_
+    participant RK as RkllmSession
+    participant AI as stdout AI
+    participant TTS as TtsWorker
+
+    YOU->>Greet: SubmitPrompt
+    Greet->>Worker: 排队
+    Worker->>Infer: RunPromptNow
+    Infer->>RK: rkllm_run
+    RK-->>AI: NORMAL printf
+    RK-->>Worker: NORMAL 回调
+    Worker->>Worker: OnLlmChunk 入队
+    Greet->>Worker: PollDeferred
+    Worker->>TTS: DrainDeferredTts
+```
+
+- **自动问候**：人脸稳定 → `SetBannerLine` → `stdout AI>`（不经 `Infer` / `rkllm_run`；见 §4.1）。
+- **每帧末**（主线程）：`ModelCoordinator::UpdateAfterFrame` → `LlmGreeting::Update` + `LlmGreeting::PollDeferred()` → `LlmWorker::PollDeferred()`（`PollInitState`、`DrainDeferredTtsEvents`、deferred/pending 下一句 `RunPromptNow`）；同帧内 `TtsWorker::PollInitState()` 与 `TryOpenDialogueIfReady()` 在 `LlmGreeting` 内完成。
+- **RK 回调**在 `infer_thread_` 上执行；TTS 与下一句 prompt 仅在主线程 `PollDeferred` 中消费，避免与 stdout/门控并发乱序。
 
 ---
 
@@ -103,7 +104,7 @@ flowchart TB
 | `rkllm_session.cpp` | 唯一调用 `rkllm_*`；`RunPromptSync`；回调直写 stdout |
 | `llm_worker.cpp` | 异步 `rkllm_init`（**先 stat 预检**）；`IsLoadFailed`；`infer_thread_`；`SubmitPrompt` 排队 |
 | `llm_greeting.cpp` | Locked/Arming/Active/Grace；门控；静态问候；**仅视觉降级** UX |
-| `model_coordinator.cpp` | 视觉槽；每帧 `PollDeferred` |
+| `model_coordinator.cpp` | 视觉槽；每帧末调用 `llm_greeting_.PollDeferred()` |
 | `pipeline.cpp` | 终端 `YOU>` |
 
 **InitOnce：** 首次 `rkllm_init` 成功后进程内保持加载；脸消失 **不** `rkllm_destroy`。模型异步加载为 `std::async`，只影响首启。
@@ -294,7 +295,7 @@ model:
 | [architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) | 平台总览、加载顺序、接续开发 |
 | [tts-melotts_CN.md](tts-melotts_CN.md) | TTS/语音对话设计与验收 |
 | [adapters_CN.md](adapters_CN.md) § LLM | LLM 适配器速览 |
-| [troubleshooting_CN.md](troubleshooting_CN.md) | 视觉模型、退出、崩溃排障 |
+| [troubleshooting_CN.md](troubleshooting_CN.md) | 0 框、路径错、退出/崩溃；TTS 细节见 TTS 专文 |
 | [README_CN.md](README_CN.md) | Edge AI Runtime 文档索引 |
 
 ---

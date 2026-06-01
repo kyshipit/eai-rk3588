@@ -32,7 +32,7 @@ Language: **English** | [中文](architecture-and-runtime_CN.md)
 | Loading          | `SYS> 对话模型加载中…`          | `Initializing`                   |
 | Idle → approach  | Ready → `输入通道已就绪…`       | idle → person → scrfd on         |
 | Stable face      | `AI>` greeting + TTS          | Active, `SetBannerLine`          |
-| Question         | `YOU>` → stream `AI>`; TTS    | `rkllm_run` + Planner            |
+| Question         | `YOU>` → stream `AI>`; FastAck + formal TTS streaming | `rkllm_run` + Planner            |
 | Re-ask / leave   | New `YOU>` cancels audio      | Gate / `prompt_gate`             |
 
 
@@ -54,12 +54,13 @@ runtime/
 ```
 
 
-| Layer        | Role                                              |
-| ------------ | ------------------------------------------------- |
-| **app**      | Load yaml; wire Coordinator / LLM / TTS / Pipeline |
-| **engine**   | Capture → infer → main-thread display and policy  |
-| **platform** | Vision slot on/off, scene debounce, face gate    |
-| **adapters** | Vision: `IModelAdapter`; LLM/TTS: logic side paths |
+| Layer             | Directory                             | Role                                                                 |
+| ----------------- | ------------------------------------- | -------------------------------------------------------------------- |
+| Entry             | `runtime/app/`                        | Load YAML; start Pipeline and ModelCoordinator                       |
+| Capture / display | `runtime/capture/` `runtime/display/` | Frames, rotation, overlays, OpenCV preview                           |
+| Engine            | `runtime/engine/`                     | Pipeline, queues; preprocess → infer → postprocess; main-thread display and stdin |
+| Policy            | `runtime/platform/`                   | Scene switching, face gate, auto greeting                            |
+| Models            | `runtime/adapters/`                   | yolo / scrfd / llm / tts plugins, enabled on demand                  |
 
 
 - Vision: **per frame** `Preprocess → Inference → Postprocess` (`RunEnabledSlots`).
@@ -85,23 +86,14 @@ runtime/
 ## 4. Two “slot” kinds and signals
 
 ```mermaid
-flowchart TB
-    subgraph vision [NPU vision slots]
-        YOLO[yolo]
-        SCRFD[scrfd]
-    end
-    subgraph logic [Logic side paths]
-        LLM[LlmWorker]
-        TTS[TtsWorker]
-    end
-    MC[ModelCoordinator]
-    Greet[LlmGreeting]
-    Pipe[Pipeline]
-    Pipe --> vision
-    MC --> vision
-    MC --> Greet
-    Greet --> LLM
-    LLM --> TTS
+flowchart LR
+    Pipe[Pipeline] --> YOLO[yolo]
+    Pipe --> SCRFD[scrfd]
+    MC[ModelCoordinator] --> YOLO
+    MC --> SCRFD
+    MC --> Greet[LlmGreeting]
+    Greet --> LLM[LlmWorker]
+    LLM --> TTS[TtsWorker]
 ```
 
 

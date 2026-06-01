@@ -50,26 +50,15 @@ model.tts.skip_static_greeting: true   # 不播人脸稳定后的静态问候
 
 ---
 
-## 文档导航
+## 文档索引
 
-| 目标 | 文档 |
-|------|------|
-| **第一次搞懂整体** | [architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) |
-| **改对话 / 门控 / RKLLM** | [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) |
-| **改语音 / 验收 TTS 体验** | [tts-melotts_CN.md](tts-melotts_CN.md)（**TTS 唯一验收依据**） |
-| **查某个 adapter 文件干什么** | [adapters_CN.md](adapters_CN.md) |
-| **0 框、路径错、退不出、崩溃** | [troubleshooting_CN.md](troubleshooting_CN.md) |
-| **TTS 断续、underrun、FastAck 不响** | [tts-melotts_CN.md](tts-melotts_CN.md) §12 |
-
----
-
-## 阅读顺序
-
-1. **[architecture-and-runtime_CN.md](architecture-and-runtime_CN.md)** — 分层、槽、启动顺序、Pipeline 线程、设计取舍  
-2. **[tts-melotts_CN.md](tts-melotts_CN.md)** — 改语音/TTS 必读（FastAck、Planner、underrun 验收）  
-3. **[llm-model-coordinator_CN.md](llm-model-coordinator_CN.md)** — 门控状态机、终端 UX、`YOU>` 数据流  
-4. **[adapters_CN.md](adapters_CN.md)** — `adapters/{yolo,scrfd,llm,tts}/` 文件职责  
-5. **[troubleshooting_CN.md](troubleshooting_CN.md)** — 出问题再查  
+| 主题 | 文档 | 说明 |
+|------|------|------|
+| 平台架构与运行逻辑 | [architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) | 分层、槽、启动顺序、Pipeline 线程、设计取舍 |
+| 语音 TTS | [tts-melotts_CN.md](tts-melotts_CN.md) | FastAck、Planner；**TTS 唯一验收依据**；断续/underrun/FastAck 见 §12 |
+| 对话与门控 | [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) | RKLLM、门控状态机、终端 `YOU>` 数据流 |
+| Adapter 源码 | [adapters_CN.md](adapters_CN.md) | `adapters/{yolo,scrfd,llm,tts}/` 文件职责 |
+| 故障排查 | [troubleshooting_CN.md](troubleshooting_CN.md) | 0 框、路径错、退出/崩溃；TTS 细节见 TTS 专文 |
 
 架构图（与根 [README_CN.md](../README_CN.md)、[architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) §1 同源）：[`assets/architecture_cn.svg`](../assets/architecture_cn.svg)。
 

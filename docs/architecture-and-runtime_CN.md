@@ -54,12 +54,13 @@ runtime/
 ```
 
 
-| 层            | 职责                                           |
-| ------------ | -------------------------------------------- |
-| **app**      | 读 yaml、组装 Coordinator / LLM / TTS / Pipeline |
-| **engine**   | 采帧 → 推理 → 主线程显示与策略                           |
-| **platform** | 视觉槽启停、场景去抖、人脸门控                              |
-| **adapters** | 视觉：`IModelAdapter`；LLM/TTS：逻辑旁路              |
+| 层       | 目录                                    | 职责                                                                 |
+| ------- | ------------------------------------- | ------------------------------------------------------------------ |
+| 入口      | `runtime/app/`                        | 读 YAML，启动 Pipeline 与 ModelCoordinator                            |
+| 采集 / 显示 | `runtime/capture/` `runtime/display/` | 采帧、旋转、画框、OpenCV 预览                                               |
+| 引擎      | `runtime/engine/`                     | Pipeline、队列；Preprocess → Inference → Postprocess；主线程显示与 stdin |
+| 策略      | `runtime/platform/`                   | 视觉槽启停、场景去抖、人脸门控                                                  |
+| 模型      | `runtime/adapters/`                   | 视觉：`IModelAdapter`；LLM/TTS：逻辑旁路                                  |
 
 
 - 视觉：**每帧** `Preprocess → Inference → Postprocess`（`RunEnabledSlots`）。
@@ -85,23 +86,14 @@ runtime/
 ## 4. 两类「槽」与信号链
 
 ```mermaid
-flowchart TB
-    subgraph vision [NPU 视觉槽]
-        YOLO[yolo]
-        SCRFD[scrfd]
-    end
-    subgraph logic [逻辑旁路]
-        LLM[LlmWorker]
-        TTS[TtsWorker]
-    end
-    MC[ModelCoordinator]
-    Greet[LlmGreeting]
-    Pipe[Pipeline]
-    Pipe --> vision
-    MC --> vision
-    MC --> Greet
-    Greet --> LLM
-    LLM --> TTS
+flowchart LR
+    Pipe[Pipeline] --> YOLO[yolo]
+    Pipe --> SCRFD[scrfd]
+    MC[ModelCoordinator] --> YOLO
+    MC --> SCRFD
+    MC --> Greet[LlmGreeting]
+    Greet --> LLM[LlmWorker]
+    LLM --> TTS[TtsWorker]
 ```
 
 
