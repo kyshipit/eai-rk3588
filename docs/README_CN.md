@@ -16,7 +16,7 @@ Language: **中文** | [English](README.md)
 | **语音** | `YOU>` 后 FastAck 短反馈（≤1s）+ 正式回答 TTS（需 `gst-launch-1.0`） |
 | **配置** | 唯一默认：**`runtime/config/default.yaml`** |
 
-主程序：`edgeai_platform_app`（在 `runtime/` 编译生成）。
+主程序：`edgeai_app`（在 `runtime/` 编译生成）。
 
 ---
 
@@ -26,8 +26,9 @@ Language: **中文** | [English](README.md)
 
 ```bash
 cd runtime && ./build-linux.sh
-cd install/rk3588_linux_aarch64/rknn_edgeai_platform
-./edgeai_platform_app config/default.yaml
+adb push install/rk3588_linux_aarch64/rknn_eai_rk3588  <target_directory>
+cd <target_directory>/rknn_eai_rk3588
+./edgeai_app
 ```
 
 **终端约定**（会话走 stdout，诊断走 stderr）：

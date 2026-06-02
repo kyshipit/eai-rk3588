@@ -10,14 +10,7 @@ Language: **English** | [中文](architecture-and-runtime_CN.md)
 
 ## 1. Scope, boundaries, reference timeline
 
-**Platform**: `edgeai_platform_app` + `runtime/` + `config/default.yaml` + `adapters/` plugins. New vision slots, coordinator scenes, or logic side paths (`LlmWorker` / `TtsWorker`) **do not** require Pipeline core changes.
-
-
-| On board                         | Out of scope              |
-| -------------------------------- | ------------------------- |
-| `runtime/`, `model/*.rknn` / `.rkllm` / lexicon | Repo root `verify/` (PC only) |
-| `3rdparty`, `utils` (link only)  | Cursor worktree copies    |
-
+**Platform**: `edgeai_app` + `runtime/` + `config/default.yaml` + `adapters/` plugins. New vision slots, coordinator scenes, or logic side paths (`LlmWorker` / `TtsWorker`) **do not** require Pipeline core changes.
 
 ![Edge AI Runtime architecture](../assets/architecture.svg)
 
@@ -216,21 +209,7 @@ Notes: `UpdateAfterFrame` before draw; suppress YOLO person boxes when yolo+scrf
 
 Full comments: [`runtime/config/default.yaml`](../runtime/config/default.yaml).
 
----
-
-## 10. Continue development
-
-```bash
-cd runtime && ./build-linux.sh
-cd install/rk3588_linux_aarch64/rknn_edgeai_platform
-./edgeai_platform_app config/default.yaml
-```
-
-Board models: `./model/`; `verify/` not used at runtime. Backlog (VAD/button/YOLO-World): [README.md](README.md).
-
----
-
-## 11. Related docs
+## 10. Related docs
 
 Reading order and index: **[README.md](README.md)**.
 

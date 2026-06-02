@@ -10,14 +10,7 @@ Language: **中文** | [English](architecture-and-runtime.md)
 
 ## 1. 定位、边界与参考应用时间线
 
-**平台**：`edgeai_platform_app` + `runtime/` + `config/default.yaml` + `adapters/` 插件。扩展视觉槽、协调器场景或逻辑旁路（`LlmWorker` / `TtsWorker`）**不必**改 Pipeline 内核。
-
-
-| 参与板端运行                                    | 不参与                  |
-| ----------------------------------------- | -------------------- |
-| `runtime/`、`model/*.rknn` / `.rkllm` / 词表 | 仓库根 `verify/`（PC 验证） |
-| `3rdparty`、`utils`（只读链接）                  | Cursor worktree 副本   |
-
+**平台**：`edgeai_app` + `runtime/` + `config/default.yaml` + `adapters/` 插件。扩展视觉槽、协调器场景或逻辑旁路（`LlmWorker` / `TtsWorker`）**不必**改 Pipeline 内核。
 
 ![Edge AI Runtime 架构](../assets/architecture_cn.svg)
 
@@ -218,19 +211,7 @@ flowchart LR
 
 ---
 
-## 10. 接续开发
-
-```bash
-cd runtime && ./build-linux.sh
-cd install/rk3588_linux_aarch64/rknn_edgeai_platform
-./edgeai_platform_app config/default.yaml
-```
-
-板端模型文件：`./model/`；`verify/` 不参与运行。Backlog（VAD/按键/YOLO-World 等）见 [README_CN.md](README_CN.md)。
-
----
-
-## 11. 相关文档
+## 10. 相关文档
 
 阅读顺序与索引见 **[README_CN.md](README_CN.md)**。
 

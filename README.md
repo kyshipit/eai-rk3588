@@ -49,8 +49,9 @@ Startup order, threads, and design trade-offs: [docs/architecture-and-runtime.md
 
 ```bash
 cd runtime && ./build-linux.sh
-cd install/rk3588_linux_aarch64/rknn_edgeai_platform
-./edgeai_platform_app config/default.yaml
+adb push install/rk3588_linux_aarch64/rknn_eai_rk3588  <target_directory>
+cd <target_directory>/rknn_eai_rk3588
+./edgeai_app
 ```
 
 Adjust camera, model paths, and LLM/TTS switches in `config/default.yaml` for your board.

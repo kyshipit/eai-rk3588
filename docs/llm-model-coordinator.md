@@ -25,7 +25,7 @@ Language: **English** | [中文](llm-model-coordinator_CN.md)
 
 | Item | Note |
 |------|------|
-| Consistency | Same level as `adapters/yolo`, `scrfd`; linked into `edgeai_platform_app` |
+| Consistency | Same level as `adapters/yolo`, `scrfd`; linked into `edgeai_app` |
 | API | `rkllm_init` / **sync `rkllm_run`** / callbacks → `rkllm_session` |
 | Third party | `runtime/3rdparty/rkllm/`: `rkllm.h`, `librkllmrt.so`, `libgomp.so` |
 
@@ -277,20 +277,8 @@ model:
 
 Diagnostics on **stderr**; session on **stdout**.
 
----
 
-## 10. Enable on board
-
-1. Place `.rkllm` at `model.llm.path`.
-2. `model.llm.enabled: true`.
-3. `cd runtime && ./build-linux.sh`.
-4. `cd install/rk3588_linux_aarch64/rknn_edgeai_platform && ./edgeai_platform_app config/default.yaml`.
-5. Expected (model ready): `scene -> person` → `scrfd` in slots → one `rkllm_init ok` → stable face → static `AI>` → `YOU>` → streaming `AI>`.
-6. Missing `.rkllm`: `SYS> 仅视觉模式（对话模型未加载）`; vision OK; no `AI>` greeting; `YOU>` shows dialogue unavailable (once per session).
-
----
-
-## 11. Related docs
+## 10. Related docs
 
 | Doc | Use |
 |-----|-----|

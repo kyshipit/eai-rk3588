@@ -2,7 +2,7 @@
 
 # EAI-RK3588: A Plugin-Based Edge AI Platform
 
-**EAI-RK3588** 是一个专为 Rockchip RK3588 设计的可扩展边缘推理平台。它通过一份 YAML 配置文件驱动，结合了多线程视频流水线与插件化架构，并利用协调器实现视觉模型与逻辑组件的按需激活。平台内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成，默认应用展示了人脸门控、AI 问候与对话等功能
+**EAI-RK3588** 是一个专为 Rockchip RK3588 设计的可扩展边缘推理平台。它通过一份 YAML 配置文件驱动，结合了多线程视频流水线与插件化架构，并利用协调器实现视觉模型与逻辑组件的按需激活。平台内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成，默认应用展示了人脸门控、AI 问候与对话等功能。
 
 当前默认应用（`default.yaml`）：摄像头视觉、人脸门控板端对话与 TTS；各阶段表现见下表。
 
@@ -47,8 +47,9 @@
 
 ```bash
 cd runtime && ./build-linux.sh
-cd install/rk3588_linux_aarch64/rknn_edgeai_platform
-./edgeai_platform_app config/default.yaml
+adb push install/rk3588_linux_aarch64/rknn_eai_rk3588  <target_directory>
+cd <target_directory>/rknn_eai_rk3588
+./edgeai_app
 ```
 
 按板端修改 `config/default.yaml` 中的摄像头、模型路径及 LLM/TTS 开关。

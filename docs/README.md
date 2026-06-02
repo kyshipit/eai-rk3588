@@ -16,7 +16,7 @@ Language: **English** | [中文](README_CN.md)
 | **Speech** | After `YOU>`: FastAck (≤1s) + formal answer TTS (requires `gst-launch-1.0`) |
 | **Config** | Default source: **`runtime/config/default.yaml`** |
 
-Main binary: `edgeai_platform_app` (built under `runtime/`).
+Main binary: `edgeai_app` (built under `runtime/`).
 
 ---
 
@@ -26,8 +26,9 @@ Main binary: `edgeai_platform_app` (built under `runtime/`).
 
 ```bash
 cd runtime && ./build-linux.sh
-cd install/rk3588_linux_aarch64/rknn_edgeai_platform
-./edgeai_platform_app config/default.yaml
+adb push install/rk3588_linux_aarch64/rknn_eai_rk3588  <target_directory>
+cd <target_directory>/rknn_eai_rk3588
+./edgeai_app
 ```
 
 **Terminal conventions** (session on stdout, diagnostics on stderr):

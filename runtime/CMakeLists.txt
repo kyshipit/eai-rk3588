@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 message(STATUS "cmake version ${CMAKE_VERSION}")
-project(edgeai_platform)
+project(eai_rk3588_app)
 
 set(TOOLCHAIN_DIR /opt/atk-dlrk3588-toolchain)
 set(CMAKE_CXX_COMPILER ${TOOLCHAIN_DIR}/bin/aarch64-buildroot-linux-gnu-g++)
@@ -51,12 +51,12 @@ set(RUNTIME_SRC
     adapters/tts/tts_planner.cpp
 )
 
-add_executable(edgeai_platform_app ${RUNTIME_SRC})
+add_executable(edgeai_app ${RUNTIME_SRC})
 
 # 预编译 libsndfile.a 未带 -fPIC，PIE 链接会失败；可执行文件关闭 PIE。
-target_link_options(edgeai_platform_app PRIVATE -no-pie)
+target_link_options(edgeai_app PRIVATE -no-pie)
 
-target_link_libraries(edgeai_platform_app
+target_link_libraries(edgeai_app
     imageutils
     fileutils
     imagedrawing
@@ -69,9 +69,9 @@ target_link_libraries(edgeai_platform_app
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-target_link_libraries(edgeai_platform_app Threads::Threads)
+target_link_libraries(edgeai_app Threads::Threads)
 
-target_include_directories(edgeai_platform_app PRIVATE
+target_include_directories(edgeai_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/yolo
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/scrfd
@@ -83,7 +83,7 @@ target_include_directories(edgeai_platform_app PRIVATE
     ${LIBRKNNRT_INCLUDES}
 )
 
-install(TARGETS edgeai_platform_app DESTINATION .)
+install(TARGETS edgeai_app DESTINATION .)
 install(FILES ${LIBRKNNRT} DESTINATION lib)
 install(FILES ${LIBRKLLMRT} ${LIBGOMP} DESTINATION lib)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../model/coco_80_labels_list.txt DESTINATION ./model)

@@ -4,7 +4,7 @@ set -e
 
 TARGET_SOC=rk3588
 TARGET_ARCH=aarch64
-BUILD_DEMO_NAME=edgeai_platform
+BUILD_DEMO_NAME=eai_rk3588
 export GCC_COMPILER=/opt/atk-dlrk3588-toolchain/bin/aarch64-buildroot-linux-gnu
 echo "$GCC_COMPILER"
 export CC=${GCC_COMPILER}-gcc

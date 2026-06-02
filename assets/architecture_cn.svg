@@ -10,7 +10,7 @@
 
   <rect width="960" height="560" fill="#fafafa" rx="8"/>
   <text x="480" y="32" text-anchor="middle" font-size="18" font-weight="bold" fill="#1e293b">Edge AI Runtime 架构</text>
-  <text x="480" y="48" text-anchor="middle" font-size="10" fill="#64748b">RK3588 · edgeai_platform_app · runtime/</text>
+  <text x="480" y="48" text-anchor="middle" font-size="10" fill="#64748b">RK3588 · edgeai_app · runtime/</text>
 
   <!-- app -->
   <rect x="375" y="58" width="210" height="48" rx="6" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
