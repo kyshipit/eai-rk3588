@@ -1,3 +1,5 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:99bf5ee7f8ed5411d8351b98dcb08926b522f5012dce82bb2c645e835bb8ba33
-size 148
+说明：
+
+关于deepseek-1.5b-w8a8-rk3588.rkllm 模型文件1.9GB
+    
+参考https://alientek.yuque.com/mlv64o/gcrfbv/kaznwt5nv2lvug7g进行转换
