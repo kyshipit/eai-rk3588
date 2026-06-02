@@ -2,9 +2,9 @@
 
 # RK3588 Edge AI Inference Platform
 
-**RK3588 on-board Edge AI inference platform**, driven by `runtime/config/default.yaml`. Main binary: **edgeai_platform_app** (build under `runtime/`); deploy the `runtime/` install tree and inference models under `model/` on the board. Build and run: **Quick start** below.
+**EAI-RK3588** is an extensible edge inference platform for Rockchip RK3588. Driven by a single YAML configuration (runtime/config/default.yaml), it integrates a multi-threaded video pipeline with a plugin-based architecture that enables on-demand activation of vision models (YOLO, SCRFD) and logic components (RKLLM chat, TTS speech) via a coordinator.
 
-The **default app** (`default.yaml`): camera vision, face-gated on-device dialogue and TTS. Phase-by-phase behavior is in the table below.
+The default app (`default.yaml`): camera vision, face-gated on-device dialogue and TTS. Phase-by-phase behavior is in the table below.
 
 ## Default app
 

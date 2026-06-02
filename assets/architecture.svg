@@ -107,10 +107,10 @@
   <line x1="440" y1="106" x2="322" y2="150" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrDash)"/>
   <line x1="520" y1="106" x2="125" y2="333" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrDash)"/>
   <line x1="560" y1="240" x2="125" y2="333" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrDash)"/>
-  <text x="248" y="278" font-size="9" fill="#94a3b8">person / face signals</text>
+  <text x="310" y="270" font-size="9" fill="#94a3b8">person / face signals</text>
 
   <line x1="695" y1="338" x2="425" y2="213" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrDash)"/>
-  <text x="578" y="262" text-anchor="middle" font-size="9" fill="#94a3b8">TTS active · skip yolo infer</text>
+  <text x="610" y="270" text-anchor="middle" font-size="9" fill="#94a3b8">TTS active · skip yolo infer</text>
 
   <polyline points="280,396 300,420 675,420 695,396" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrDash)"/>
   <text x="460" y="414" text-anchor="middle" font-size="9" fill="#94a3b8">static greet · PlayText</text>

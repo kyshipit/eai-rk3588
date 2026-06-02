@@ -1,10 +1,10 @@
 🌐 语言: **中文** | [English](README.md)
 
-# RK3588 Edge AI Inference Platform
+# EAI-RK3588: A Plugin-Based Edge AI Platform
 
-**RK3588 板端 Edge AI 推理平台**：由 `runtime/config/default.yaml` 驱动，主程序 **edgeai_platform_app**（在 `runtime/` 编译）；须将 `runtime/` 安装产物与 `model/` 下推理模型部署到板端。编译与运行见下方「快速开始」。
+**EAI-RK3588** 是一个专为 Rockchip RK3588 设计的可扩展边缘推理平台。它通过一份 YAML 配置文件驱动，结合了多线程视频流水线与插件化架构，并利用协调器实现视觉模型与逻辑组件的按需激活。平台内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成，默认应用展示了人脸门控、AI 问候与对话等功能
 
-当前 **默认应用**（`default.yaml`）：摄像头视觉、人脸门控板端对话与 TTS；各阶段表现见下表。
+当前默认应用（`default.yaml`）：摄像头视觉、人脸门控板端对话与 TTS；各阶段表现见下表。
 
 ## 默认应用
 

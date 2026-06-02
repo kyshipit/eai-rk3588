@@ -127,11 +127,11 @@
   <line x1="520" y1="106" x2="125" y2="333" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrDash)"/>
   <!-- 虚线：vision signals → ModelCoordinator（保持原样） -->
   <line x1="560" y1="240" x2="125" y2="333" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrDash)"/>
-  <text x="248" y="278" font-size="9" fill="#94a3b8">person / face 信号</text>
+  <text x="310" y="270" font-size="9" fill="#94a3b8">person / face 信号</text>
 
   <!-- 虚线：TtsWorker → Pipeline/YOLO：TTS 活跃时 skip yolo inference（不关 scrfd） -->
   <line x1="695" y1="338" x2="425" y2="213" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrDash)"/>
-  <text x="578" y="262" text-anchor="middle" font-size="9" fill="#94a3b8">TTS 活跃 · skip yolo infer</text>
+  <text x="610" y="270" text-anchor="middle" font-size="9" fill="#94a3b8">TTS 活跃 · skip yolo infer</text>
 
   <!-- 虚线：LlmGreeting → TtsWorker（修改为从下边中点引出，短斜线+长水平线+短斜线） -->
   <!-- LlmGreeting 下边中点 (280,396)，先短斜下到 (300,420)，水平到 (675,420)，再短斜上到 TtsWorker 下边中点 (695,396) -->
