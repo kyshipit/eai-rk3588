@@ -61,8 +61,6 @@ Vision-only: missing `.rkllm` or init failure → preview OK, `SYS> 仅视觉模
 | Adapter source | [adapters.md](adapters.md) | `adapters/{yolo,scrfd,llm,tts}/` file roles |
 | Troubleshooting | [troubleshooting.md](troubleshooting.md) | Zero boxes, wrong paths, exit/crash; TTS details in TTS doc |
 
-Architecture diagram ([architecture-and-runtime.md](architecture-and-runtime.md) §1; also in root [README.md](../README.md)): [`assets/architecture.svg`](../assets/architecture.svg). (Chinese diagram: [`architecture_cn.svg`](../assets/architecture_cn.svg).)
-
 ---
 
 ## Code and config entry points

@@ -61,8 +61,6 @@ model.tts.skip_static_greeting: true   # 不播人脸稳定后的静态问候
 | Adapter 源码 | [adapters_CN.md](adapters_CN.md) | `adapters/{yolo,scrfd,llm,tts}/` 文件职责 |
 | 故障排查 | [troubleshooting_CN.md](troubleshooting_CN.md) | 0 框、路径错、退出/崩溃；TTS 细节见 TTS 专文 |
 
-架构图（与根 [README_CN.md](../README_CN.md)、[architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) §1 同源）：[`assets/architecture_cn.svg`](../assets/architecture_cn.svg)。
-
 ---
 
 ## 代码与配置入口
