@@ -5,12 +5,74 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <utility>
 
 #include "audio_player.h"
 #include "melotts_process.h"
 #include "platform/logging.h"
+#include "split.hpp"
 #include "tts_text_sanitizer.h"
+
+namespace {
+
+constexpr float kSilenceThreshold = 5e-5f;
+constexpr size_t kSilenceKeepPad = 441;
+constexpr size_t kMaxLeadingScan = 22050;
+
+// 仅裁掉 PCM 开头绝对静音（单样本近零），不碰弱起音，避免误删整句。
+void TrimAbsoluteLeadingSilence(std::vector<float>& pcm) {
+    if (pcm.size() < kSilenceKeepPad * 2) {
+        return;
+    }
+    size_t start = 0;
+    for (; start < pcm.size() && start < kMaxLeadingScan; ++start) {
+        if (std::fabs(pcm[start]) >= kSilenceThreshold) {
+            break;
+        }
+    }
+    if (start == 0 || start >= pcm.size()) {
+        return;
+    }
+    start = (start > kSilenceKeepPad) ? (start - kSilenceKeepPad) : 0;
+    pcm.erase(pcm.begin(), pcm.begin() + static_cast<std::ptrdiff_t>(start));
+}
+
+// 裁掉 PCM 末尾连续近零样本，减轻 Melo 分句拼接时的句间空白。
+void TrimTrailingSilence(std::vector<float>& pcm) {
+    if (pcm.size() < kSilenceKeepPad * 2) {
+        return;
+    }
+    size_t end = pcm.size();
+    while (end > 0 && std::fabs(pcm[end - 1]) < kSilenceThreshold) {
+        --end;
+    }
+    if (end == pcm.size()) {
+        return;
+    }
+    end = std::min(pcm.size(), end + kSilenceKeepPad);
+    pcm.resize(end);
+}
+
+// 将 Melo 分句 PCM 拼成一段；每句先裁绝对静音，job 内合并后一次播放，避免块间 underrun。
+void AppendMeloSentencePcm(std::vector<float>& merged, std::vector<float> chunk) {
+    if (chunk.empty()) {
+        return;
+    }
+    TrimAbsoluteLeadingSilence(chunk);
+    merged.insert(merged.end(), std::make_move_iterator(chunk.begin()),
+                  std::make_move_iterator(chunk.end()));
+}
+
+// 短答与问候相同：整段一次 Melo，不走合并/二次句首裁剪。
+bool UseGreetingStyleSynth(const MeloTtsConfig& cfg, const std::string& text) {
+    if (cfg.single_shot_max_chars <= 0) {
+        return false;
+    }
+    return utf8_strlen(text) <= static_cast<size_t>(cfg.single_shot_max_chars);
+}
+
+}  // namespace
 
 // 延迟加载 RKNN，由 Configure / RequestInitializeAsync 触发。
 TtsWorker::TtsWorker() = default;
@@ -270,9 +332,14 @@ bool TtsWorker::IsReadyUnlocked() const {
     return init_state_ == InitState::Ready;
 }
 
-// 锁内判断：存在文本队列、PCM 队列或当前正在合成即视为活跃播报。
+// 锁内判断：合成/文本/PCM 队列非空即活跃播报。
 bool TtsWorker::IsPlaybackActiveUnlocked() const {
     return synth_busy_ || !text_queue_.empty() || !pcm_queue_.empty();
+}
+
+// 锁内判断：正式回答是否仍有在途合成或待合成文本（不含已在 gst 的 PCM）。
+bool TtsWorker::IsFormalPipelinePendingUnlocked() const {
+    return synth_busy_ || !text_queue_.empty();
 }
 
 // 锁内刷新保护锁存：仅保留水位日志语义，保护窗口由整轮活跃期决定。
@@ -427,18 +494,43 @@ void TtsWorker::SynthesizeLoop() {
         }
         const uint64_t job_generation = job.generation;
         const TextJobKind job_kind = job.kind;
-        const bool emitted = session_.SynthesizeTextStreaming(
-            job.text, [this, job_generation, job_kind](std::vector<float>&& pcm_chunk) {
-                const PcmJobKind kind =
-                    (job_kind == TextJobKind::Static) ? PcmJobKind::Static : PcmJobKind::Formal;
-                return PushPcmChunk(job_generation, std::move(pcm_chunk), kind);
-            });
+        bool pushed = false;
+        if (job_kind == TextJobKind::FormalAnswer && UseGreetingStyleSynth(cfg_, job.text)) {
+            // 短答：与 PlayText(Static) 完全相同的合成→trim→入队，不做 merge/Trailing 二次处理。
+            pushed = session_.SynthesizeTextStreaming(
+                job.text, [this, job_generation](std::vector<float>&& pcm_chunk) {
+                    if (!pcm_chunk.empty()) {
+                        TrimAbsoluteLeadingSilence(pcm_chunk);
+                    }
+                    return PushPcmChunk(job_generation, std::move(pcm_chunk), PcmJobKind::Formal);
+                });
+        } else if (job_kind == TextJobKind::FormalAnswer) {
+            // 长答：Melo 多分句时 job 内合并 PCM，一次 PlayPcm，避免块间断粮。
+            std::vector<float> merged_pcm;
+            const bool emitted = session_.SynthesizeTextStreaming(
+                job.text, [&merged_pcm](std::vector<float>&& pcm_chunk) {
+                    AppendMeloSentencePcm(merged_pcm, std::move(pcm_chunk));
+                    return true;
+                });
+            if (emitted && !merged_pcm.empty()) {
+                TrimTrailingSilence(merged_pcm);
+                pushed = PushPcmChunk(job_generation, std::move(merged_pcm), PcmJobKind::Formal);
+            }
+        } else {
+            pushed = session_.SynthesizeTextStreaming(
+                job.text, [this, job_generation](std::vector<float>&& pcm_chunk) {
+                    if (!pcm_chunk.empty()) {
+                        TrimAbsoluteLeadingSilence(pcm_chunk);
+                    }
+                    return PushPcmChunk(job_generation, std::move(pcm_chunk), PcmJobKind::Static);
+                });
+        }
         {
             std::lock_guard<std::mutex> lock(mutex_);
             synth_busy_ = false;
             RefreshProtectionLatchUnlocked();
         }
-        if (!emitted && job.kind == TextJobKind::FormalAnswer) {
+        if (!pushed && job.kind == TextJobKind::FormalAnswer) {
             LogWarn("TtsWorker: synthesize empty text=\"%.48s%s\"",
                     job.text.c_str(), job.text.size() > 48 ? "..." : "");
         }
@@ -454,32 +546,20 @@ void TtsWorker::PlaybackLoop() {
         uint64_t first_play_generation = 0;
         {
             std::unique_lock<std::mutex> lock(mutex_);
+            if (formal_playback_started_ && pcm_queue_.empty() &&
+                !IsFormalPipelinePendingUnlocked()) {
+                formal_playback_started_ = false;
+            }
             if (!stop_ && formal_playback_started_ && pcm_queue_.empty() &&
-                IsPlaybackActiveUnlocked()) {
+                IsFormalPipelinePendingUnlocked()) {
                 MarkUnderrunUnlocked();
             }
             cv_.wait(lock, [this]() {
                 if (stop_) {
                     return true;
                 }
-                if (pcm_queue_.empty()) {
-                    return false;
-                }
-                const PcmJobKind front_kind = pcm_queue_.front().kind;
-                if (front_kind == PcmJobKind::Static) {
-                    return true;
-                }
-                if (formal_playback_started_) {
-                    return true;
-                }
-                size_t formal_count = 0;
-                for (const auto& pending : pcm_queue_) {
-                    if (pending.kind == PcmJobKind::Formal) {
-                        ++formal_count;
-                    }
-                }
-                return formal_count >= min_start_pcm_chunks_ ||
-                       (!synth_busy_ && text_queue_.empty());
+                // Static/Formal 有 PCM 即播；Formal 不再等整 job 合成完，与问候 PlayText 一致。
+                return !pcm_queue_.empty();
             });
             if (stop_) {
                 break;

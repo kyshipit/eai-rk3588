@@ -75,6 +75,8 @@ model:
     max_speak_chars: 0
     # Melo 分句最小合并字符数。
     split_min_chars: 12
+    # 不超过此字数时整段一次 decoder（与问候 PlayText 相同）；须 >= planner.short_answer_max_chars。
+    single_shot_max_chars: 96
     # 正式回答规划：语言感知切分，禁止英文单词级合成。
     planner:
       zh_min_chars: 12
@@ -82,6 +84,8 @@ model:
       en_min_words: 6
       en_max_words: 12
       fallback_timeout_ms: 800
+      # 整段回答不超过此字数时，FINISH 一次性送 TTS，不在流式中途按 800ms/句界切碎。
+      short_answer_max_chars: 96
     # 播放低水位保护策略：在 TTS 断粮风险高时临时降视觉负载（优先关 yolo）。
     qos:
       # 总开关：false 时不做 TTS 驱动的视觉降载。
@@ -90,8 +94,8 @@ model:
       low_watermark_chunks: 1
       # PCM 队列片段数 >= high 时解除低水位锁存（用于日志/诊断）。
       high_watermark_chunks: 3
-      # 正式回答首段开播前至少缓存的 PCM 片段数（整段合成后内部多句回调）。
-      min_start_pcm_chunks: 2
+      # 正式回答首段开播前至少缓存的 PCM 片段数（每 job 合并为 1 块，设为 1）。
+      min_start_pcm_chunks: 1
 
 system:
   # 日志级别：debug / info / warn / error / fatal。

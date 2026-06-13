@@ -113,6 +113,9 @@ void TtsPlanner::Configure(const TtsPlannerConfig& cfg) {
     if (cfg_.fallback_timeout_ms < 100) {
         cfg_.fallback_timeout_ms = 100;
     }
+    if (cfg_.short_answer_max_chars < cfg_.zh_max_chars) {
+        cfg_.short_answer_max_chars = cfg_.zh_max_chars;
+    }
 }
 
 // 判断 pending_ 是否以英文为主。
@@ -312,13 +315,17 @@ void TtsPlanner::TryEmitSegments(std::vector<std::string>& segments_out) {
     }
 }
 
-// 喂入可见正文增量，满足阈值时经 TryEmitSegments 流式切出片段。
+// 喂入可见正文增量；达阈值时经 TryEmitSegments 流式切出片段。
 void TtsPlanner::Feed(const std::string& visible_delta, std::vector<std::string>& segments_out) {
     if (visible_delta.empty()) {
         return;
     }
     pending_.append(visible_delta);
     last_feed_tp_ = std::chrono::steady_clock::now();
+    if (cfg_.short_answer_max_chars > 0 &&
+        utf8_strlen(pending_) <= cfg_.short_answer_max_chars) {
+        return;
+    }
     TryEmitSegments(segments_out);
 }
 

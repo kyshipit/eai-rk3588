@@ -172,6 +172,15 @@ bool MeloTtsSession::SynthesizeTextStreaming(const std::string& text,
     }
     const int lang_id = LanguageId(cfg_.language);
     const int split_min_chars = std::max(4, std::min(24, cfg_.split_min_chars));
+    const int single_shot_max = std::max(0, cfg_.single_shot_max_chars);
+    const size_t text_chars = utf8_strlen(text);
+    if (single_shot_max > 0 && static_cast<int>(text_chars) <= single_shot_max) {
+        std::vector<float> chunk_pcm;
+        if (!SynthesizeOneSentenceUnlocked(text, lang_id, chunk_pcm)) {
+            return false;
+        }
+        return on_chunk(std::move(chunk_pcm));
+    }
     auto sentences = split_sentence(text, split_min_chars, cfg_.language);
     bool emitted = false;
     for (const std::string& sentence : sentences) {

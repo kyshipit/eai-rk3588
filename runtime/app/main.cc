@@ -146,11 +146,13 @@ int main(int argc, char** argv) {
     bool llm_tts_skip_greeting = cfg.GetBool("model.tts.skip_static_greeting");
     int llm_tts_max_chars = cfg.GetInt("model.tts.max_speak_chars");
     int llm_tts_split_min_chars = cfg.GetInt("model.tts.split_min_chars", 4);
+    int llm_tts_single_shot_max = cfg.GetInt("model.tts.single_shot_max_chars", 96);
     int llm_tts_planner_zh_min = cfg.GetInt("model.tts.planner.zh_min_chars", 8);
     int llm_tts_planner_zh_max = cfg.GetInt("model.tts.planner.zh_max_chars", 15);
     int llm_tts_planner_en_min = cfg.GetInt("model.tts.planner.en_min_words", 4);
     int llm_tts_planner_en_max = cfg.GetInt("model.tts.planner.en_max_words", 8);
     int llm_tts_planner_fallback_ms = cfg.GetInt("model.tts.planner.fallback_timeout_ms", 600);
+    int llm_tts_planner_short_max = cfg.GetInt("model.tts.planner.short_answer_max_chars", 96);
     bool llm_tts_preload = cfg.GetBool("model.tts.preload_on_startup");
     float llm_tts_speed = static_cast<float>(std::atof(cfg.GetString("model.tts.speed", "1.0").c_str()));
     if (llm_tts_speed <= 0.0f) {
@@ -211,6 +213,7 @@ int main(int argc, char** argv) {
                 tts_cfg.speed = llm_tts_speed;
                 tts_cfg.disable_bert = cfg.GetBool("model.tts.disable_bert");
                 tts_cfg.split_min_chars = llm_tts_split_min_chars;
+                tts_cfg.single_shot_max_chars = std::max(0, llm_tts_single_shot_max);
                 tts_worker = std::make_shared<TtsWorker>();
                 tts_worker->Configure(tts_cfg, llm_tts_max_chars);
                 tts_worker->SetPlaybackProtectionThresholds(
@@ -224,6 +227,8 @@ int main(int argc, char** argv) {
                 planner_cfg.en_min_words = static_cast<size_t>(std::max(1, llm_tts_planner_en_min));
                 planner_cfg.en_max_words = static_cast<size_t>(std::max(1, llm_tts_planner_en_max));
                 planner_cfg.fallback_timeout_ms = std::max(100, llm_tts_planner_fallback_ms);
+                planner_cfg.short_answer_max_chars =
+                    static_cast<size_t>(std::max(1, llm_tts_planner_short_max));
                 llm_worker->ConfigureTtsPlanner(planner_cfg);
                 llm_worker->SetTtsEnabled(true);
                 coordinator.GetLlmGreeting().SetTtsWorker(tts_worker.get(),

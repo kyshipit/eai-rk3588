@@ -23,6 +23,8 @@ struct MeloTtsConfig {
     float speed = 1.0f;
     bool disable_bert = true;
     int split_min_chars = 8;
+    // 不超过此字数时整段一次 decoder，不跑 split_sentence，避免短句首段听不清。
+    int single_shot_max_chars = 96;
 };
 
 class MeloTtsSession {

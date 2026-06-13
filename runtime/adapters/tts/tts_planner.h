@@ -13,6 +13,8 @@ struct TtsPlannerConfig {
     size_t en_min_words = 4;
     size_t en_max_words = 8;
     int fallback_timeout_ms = 600;
+    // 累计可见正文不超过此字数时，等 FINISH 一次性下发，避免短答被 800ms/句界切碎。
+    size_t short_answer_max_chars = 96;
 };
 
 // 接收 TtsIngress 可见增量，按语言规则规划正式回答片段；禁止英文单词级输出。

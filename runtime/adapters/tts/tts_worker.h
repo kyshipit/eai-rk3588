@@ -96,6 +96,8 @@ private:
     void RefreshProtectionLatchUnlocked();
     // 锁内判断当前是否处于活跃播报阶段。
     bool IsPlaybackActiveUnlocked() const;
+    // 锁内判断正式回答是否仍有排队文本或合成线程在执行。
+    bool IsFormalPipelinePendingUnlocked() const;
     // 合成线程：FIFO 取文本；FormalAnswer 合并后推理，Static 小块合并。
     void SynthesizeLoop();
     // 播放线程：FIFO 取 PCM 连续播放。
