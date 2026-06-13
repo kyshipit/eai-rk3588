@@ -17,6 +17,11 @@ constexpr const char* kPromptPrefix = "<｜begin▁of▁sentence｜><｜User｜>
 constexpr const char* kPromptPostfix = "<｜Assistant｜>";
 }  // namespace
 
+// 写入 RunPromptSync 拼在 User 段末尾的约束；空串时不改变原有 User|Assistant 模板。
+void RkllmSession::SetUserPromptPrefix(const std::string& user_prompt_prefix) {
+    user_prompt_prefix_ = user_prompt_prefix;
+}
+
 // 默认构造；句柄为空。
 RkllmSession::RkllmSession() {
     std::memset(&run_input_, 0, sizeof(run_input_));
@@ -79,7 +84,13 @@ int RkllmSession::RunPromptSync(const std::string& user_text) {
     if (!handle_ || !chunk_fn_) {
         return -1;
     }
-    prompt_buffer_ = std::string(kPromptPrefix) + user_text + kPromptPostfix;
+    prompt_buffer_.assign(kPromptPrefix);
+    prompt_buffer_.append(user_text);
+    if (!user_prompt_prefix_.empty()) {
+        prompt_buffer_.push_back('\n');
+        prompt_buffer_.append(user_prompt_prefix_);
+    }
+    prompt_buffer_.append(kPromptPostfix);
 
     std::memset(&run_input_, 0, sizeof(run_input_));
     run_input_.input_type = RKLLM_INPUT_PROMPT;

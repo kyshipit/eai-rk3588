@@ -36,12 +36,6 @@ public:
     void EnqueueFormalAnswer(const std::string& text);
     // 将流式分块文本清洗后追加到待合成队列（兼容旧接口，等同 EnqueueFormalAnswer）。
     void EnqueueSentence(const std::string& text);
-    // 配置短反馈文案；TTS ready 后预合成缓存 PCM。
-    void ConfigureFastAck(bool enabled, const std::string& text);
-    // TTS init 完成后预合成短反馈 PCM（幂等）。
-    void BuildFastAckCacheIfNeeded();
-    // 播放预缓存短反馈 PCM，不等待 min_start_pcm_chunks。
-    void PlayFastAck();
     // 停止播放并清空待播队列。
     void Cancel();
     // 退出 worker 线程并释放 MeloTtsSession。
@@ -68,7 +62,6 @@ private:
         FormalAnswer,
     };
     enum class PcmJobKind {
-        FastAck,
         Static,
         Formal,
     };
@@ -143,9 +136,5 @@ private:
     uint32_t underrun_count_ = 0;
     std::chrono::steady_clock::time_point first_text_enqueue_tp_ = std::chrono::steady_clock::now();
     bool configured_ = false;
-    bool fast_ack_enabled_ = false;
-    std::string fast_ack_text_;
-    std::vector<float> fast_ack_pcm_;
-    bool fast_ack_cache_built_ = false;
     bool formal_playback_started_ = false;
 };

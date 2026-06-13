@@ -140,12 +140,12 @@ int main(int argc, char** argv) {
     bool llm_preload_on_startup = cfg.GetBool("model.llm.preload_on_startup");
     // 自动问候语（检测到稳定人脸后输出）。
     std::string llm_auto_greeting_text = cfg.GetString("model.llm.auto_greeting_text");
+    // 拼入 User 段末尾的约束文案（空串则 User 段仅含终端输入）。
+    std::string llm_user_prompt_prefix = cfg.GetString("model.llm.user_prompt_prefix");
     bool llm_tts_enabled = cfg.GetBool("model.tts.enabled");
     bool llm_tts_skip_greeting = cfg.GetBool("model.tts.skip_static_greeting");
     int llm_tts_max_chars = cfg.GetInt("model.tts.max_speak_chars");
     int llm_tts_split_min_chars = cfg.GetInt("model.tts.split_min_chars", 4);
-    bool llm_tts_fast_ack_enabled = cfg.GetBool("model.tts.fast_ack.enabled", true);
-    std::string llm_tts_fast_ack_text = cfg.GetString("model.tts.fast_ack.text", "好的。");
     int llm_tts_planner_zh_min = cfg.GetInt("model.tts.planner.zh_min_chars", 8);
     int llm_tts_planner_zh_max = cfg.GetInt("model.tts.planner.zh_max_chars", 15);
     int llm_tts_planner_en_min = cfg.GetInt("model.tts.planner.en_min_words", 4);
@@ -194,7 +194,8 @@ int main(int argc, char** argv) {
         coordinator.GetLlmGreeting().SetAutoGreetingText(llm_auto_greeting_text);
         if (llm_enabled) {
             llm_worker = std::make_shared<LlmWorker>();
-            llm_worker->Configure(llm_model_path, llm_max_new_tokens, llm_max_context_len);
+            llm_worker->Configure(llm_model_path, llm_max_new_tokens, llm_max_context_len,
+                                  llm_user_prompt_prefix);
             coordinator.GetLlmGreeting().SetLlmWorker(llm_worker.get());
             if (llm_preload_on_startup) {
                 llm_worker->RequestInitializeAsync();
@@ -216,7 +217,6 @@ int main(int argc, char** argv) {
                     static_cast<size_t>(llm_tts_low_watermark_chunks),
                     static_cast<size_t>(llm_tts_high_watermark_chunks));
                 tts_worker->SetMinStartPcmChunks(static_cast<size_t>(llm_tts_min_start_chunks));
-                tts_worker->ConfigureFastAck(llm_tts_fast_ack_enabled, llm_tts_fast_ack_text);
                 llm_worker->SetTtsWorker(tts_worker.get());
                 TtsPlannerConfig planner_cfg;
                 planner_cfg.zh_min_chars = static_cast<size_t>(std::max(1, llm_tts_planner_zh_min));

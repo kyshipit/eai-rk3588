@@ -102,9 +102,6 @@ void TtsWorker::PollInitState() {
     }
     const bool ok = done.get();
     bool notify_workers = false;
-    if (ok) {
-        BuildFastAckCacheIfNeeded();
-    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         init_state_ = ok ? InitState::Ready : InitState::Failed;
@@ -177,81 +174,6 @@ void TtsWorker::EnqueueFormalAnswer(const std::string& text) {
 // 兼容旧接口。
 void TtsWorker::EnqueueSentence(const std::string& text) {
     EnqueueFormalAnswer(text);
-}
-
-// 配置短反馈文案。
-void TtsWorker::ConfigureFastAck(bool enabled, const std::string& text) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    fast_ack_enabled_ = enabled;
-    fast_ack_text_ = text;
-    fast_ack_pcm_.clear();
-    fast_ack_cache_built_ = false;
-}
-
-// TTS ready 后预合成短反馈 PCM。
-void TtsWorker::BuildFastAckCacheIfNeeded() {
-    std::string ack_text;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!fast_ack_enabled_ || fast_ack_text_.empty() || fast_ack_cache_built_) {
-            return;
-        }
-        if (init_state_ != InitState::Ready || !session_.IsReady()) {
-            return;
-        }
-        ack_text = fast_ack_text_;
-    }
-    std::vector<float> pcm;
-    if (!session_.SynthesizeTextStreaming(ack_text, [&pcm](std::vector<float>&& chunk) {
-            if (!chunk.empty()) {
-                pcm.insert(pcm.end(), chunk.begin(), chunk.end());
-            }
-            return true;
-        })) {
-        LogWarn("TtsWorker: fast ack cache synthesize failed");
-        return;
-    }
-    if (pcm.empty()) {
-        LogWarn("TtsWorker: fast ack cache empty pcm");
-        return;
-    }
-    std::lock_guard<std::mutex> lock(mutex_);
-    fast_ack_pcm_ = std::move(pcm);
-    fast_ack_cache_built_ = true;
-    LogInfo("TtsWorker: fast ack cache ready (%zu samples)", fast_ack_pcm_.size());
-}
-
-// 播放预缓存短反馈 PCM，不等待 min_start_pcm_chunks。
-void TtsWorker::PlayFastAck() {
-    if (!fast_ack_enabled_) {
-        return;
-    }
-    BuildFastAckCacheIfNeeded();
-    std::vector<float> pcm_copy;
-    uint64_t gen = 0;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (fast_ack_pcm_.empty()) {
-            LogWarn("TtsWorker: PlayFastAck skipped (cache not ready)");
-            return;
-        }
-        pcm_copy = fast_ack_pcm_;
-        gen = generation_;
-        if (stats_generation_ != generation_) {
-            ResetGenerationStatsUnlocked(generation_);
-        }
-        if (!stats_started_) {
-            stats_started_ = true;
-            first_text_enqueue_tp_ = std::chrono::steady_clock::now();
-        }
-        PcmJob job;
-        job.kind = PcmJobKind::FastAck;
-        job.generation = gen;
-        job.pcm = std::move(pcm_copy);
-        pcm_queue_.push_back(std::move(job));
-        RefreshProtectionLatchUnlocked();
-    }
-    cv_.notify_all();
 }
 
 // 停止播放并清空待合成/待播放；代际号自增以丢弃旧会话在途任务（不杀 gst，保管道连续）。
@@ -544,7 +466,7 @@ void TtsWorker::PlaybackLoop() {
                     return false;
                 }
                 const PcmJobKind front_kind = pcm_queue_.front().kind;
-                if (front_kind == PcmJobKind::FastAck || front_kind == PcmJobKind::Static) {
+                if (front_kind == PcmJobKind::Static) {
                     return true;
                 }
                 if (formal_playback_started_) {

@@ -43,7 +43,9 @@ model:
     # 会话空闲超时（毫秒），超时后回 Locked。
     idle_timeout_ms: 60000
     # 自动问候语（稳定识别人脸后输出一次）。
-    auto_greeting_text: "您好，有什么需要帮忙吗"
+    auto_greeting_text: "您好，需要帮忙吗"
+    # 拼在 User 段末尾的约束（用户话在前；空串则仅终端输入）。
+    user_prompt_prefix: "一句话回答"
 
   # MeloTTS：旁路播报 AI> 话术（与 llm 并列；启动时仍要求 model.llm.enabled=true）。
   tts:
@@ -73,10 +75,6 @@ model:
     max_speak_chars: 0
     # Melo 分句最小合并字符数。
     split_min_chars: 12
-    # 短反馈：用户输入 accepted 后立即播放预缓存 PCM（≤1s 首响）。
-    fast_ack:
-      enabled: true
-      text: "嗯。"
     # 正式回答规划：语言感知切分，禁止英文单词级合成。
     planner:
       zh_min_chars: 12
@@ -98,7 +96,7 @@ model:
 system:
   # 日志级别：debug / info / warn / error / fatal。
   # 板端对话场景建议 info；排查 LLM 回调细节时用 debug。
-  log_level: info
+  log_level: debug
   # 推理线程数（每个启用槽位的推理工作线程数量）。
   infer_threads: 1
   # NPU 核心列表。RK3588 常用 [0, 1]；按板端资源调优。

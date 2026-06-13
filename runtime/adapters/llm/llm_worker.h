@@ -33,8 +33,9 @@ public:
     LlmWorker();
     ~LlmWorker();
 
-    // 写入模型路径与生成参数；不触发立即初始化。
-    void Configure(const std::string& model_path, int max_new_tokens, int max_context_len);
+    // 写入模型路径、生成参数与 User 段末尾约束；不触发立即初始化。
+    void Configure(const std::string& model_path, int max_new_tokens, int max_context_len,
+                   const std::string& user_prompt_prefix);
     // 快速确保初始化（内部可触发异步初始化请求）。
     bool EnsureInitialized();
     // 显式请求异步初始化（幂等）。
@@ -109,6 +110,7 @@ private:
     std::string model_path_;
     int max_new_tokens_ = 0;
     int max_context_len_ = 0;
+    std::string user_prompt_prefix_;
     bool configured_ = false;
     InitState init_state_ = InitState::Uninitialized;
     std::future<int> init_future_;

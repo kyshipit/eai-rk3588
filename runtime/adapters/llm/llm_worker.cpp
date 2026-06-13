@@ -34,12 +34,15 @@ LlmWorker::~LlmWorker() {
     Shutdown();
 }
 
-// 写入模型参数；若上次初始化失败，允许状态回到可重试。
-void LlmWorker::Configure(const std::string& model_path, int max_new_tokens, int max_context_len) {
+// 写入模型参数与 User 段末尾约束；若上次初始化失败，允许状态回到可重试。
+void LlmWorker::Configure(const std::string& model_path, int max_new_tokens, int max_context_len,
+                          const std::string& user_prompt_prefix) {
     std::lock_guard<std::mutex> lock(mutex_);
     model_path_ = model_path;
     max_new_tokens_ = max_new_tokens;
     max_context_len_ = max_context_len;
+    user_prompt_prefix_ = user_prompt_prefix;
+    session_.SetUserPromptPrefix(user_prompt_prefix_);
     configured_ = true;
     if (init_state_ == InitState::Failed) {
         init_state_ = InitState::Uninitialized;
@@ -426,7 +429,6 @@ bool LlmWorker::SubmitPrompt(const std::string& user_text, LlmPromptSource src, 
     }
     if (tts_) {
         tts_->Cancel();
-        tts_->PlayFastAck();
     }
     {
         std::lock_guard<std::mutex> lock(mutex_);
