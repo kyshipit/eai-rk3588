@@ -47,7 +47,7 @@ Config: `model.llm.*`. Integration: [llm-model-coordinator.md](llm-model-coordin
 Synthesize **speakable `AI>` text** to audio (44100 Hz):
 
 - Static greeting (`SetBannerLine` → `PlayText`)
-- Formal answer after `YOU>` (FastAck + `TtsPlanner` streaming → `EnqueueFormalAnswer`)
+- Formal answer after `YOU>` (`TtsPlanner` → `EnqueueFormalAnswer`; short answers as Static, long answers merge PCM per job)
 
 Thinking visible on terminal; **not** sent to TTS.
 
@@ -57,7 +57,7 @@ Thinking visible on terminal; **not** sent to TTS.
 |------|------|
 | `tts_ingress.*` | Filter thinking/tags; normalize UTF-8 input |
 | `tts_planner.*` | Stream-plan formal answer segments; zh/en emit thresholds |
-| `tts_worker.*` | FastAck / FormalAnswer; batch coalesce before synth; `generation_` preemption |
+| `tts_worker.*` | Static / FormalAnswer; short formal as Static; coalesce before synth; `generation_` preemption |
 | `melotts_session.*` | RKNN synth; `SynthesizeTextStreaming` sentence-level PCM |
 | `audio_player.*` | Persistent `gst-launch-1.0` pipe writing float32 PCM |
 | `tts_text_sanitizer.*` | `max_speak_chars` truncation only |

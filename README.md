@@ -14,7 +14,7 @@ The default app (`default.yaml`): camera vision, face-gated on-device dialogue a
 | Startup           | Preview window; `SYS>` loading / ready            | Load yaml; optional RKLLM/TTS preload; sync YOLO init                                                             |
 | Idle / person     | Person boxes; face boxes when someone is present  | Scene debounce idle→person; SCRFD slot on in person                                                               |
 | Stable face       | `AI>` greeting + speaker output                   | Static greeting via `SetBannerLine` + `PlayText` when `skip_static_greeting=false`                                |
-| User types `YOU>` | Short ack sound → streaming `AI>` → spoken answer | FastAck cached PCM (`model.tts.fast_ack`, ≤1s) → RKLLM side path → MeloTTS streaming; requires **gst-launch-1.0** |
+| User types `YOU>` | Streaming `AI>` → spoken answer | `SubmitPrompt` → `Cancel` → RKLLM → Planner → MeloTTS (short→Static, long→merge); requires **gst-launch-1.0** |
 | Another `YOU>`    | Previous speech stops; latest turn wins           | `TtsWorker::Cancel`                                                                                               |
 | Face leaves       | May still accept input in Grace; then rejected    | Locked / Grace state machine                                                                                      |
 | Missing `.rkllm`  | Preview only, no greeting or chat                 | Vision-only mode (`SYS>` notice)                                                                                  |

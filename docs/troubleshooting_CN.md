@@ -134,7 +134,7 @@ model.scrfd.path: ./model/scrfd.rknn
 
 ### TTS 相关问题
 
-- 语音对话体验与 TTS 排障见 [tts-melotts_CN.md](tts-melotts_CN.md) §12。
+- 语音对话体验与 TTS 排障见 [tts-melotts_CN.md](tts-melotts_CN.md) §13。
 
 ---
 

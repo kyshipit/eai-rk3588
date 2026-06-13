@@ -25,7 +25,7 @@ Language: **English** | [中文](architecture-and-runtime_CN.md)
 | Loading          | `SYS> 对话模型加载中…`          | `Initializing`                   |
 | Idle → approach  | Ready → `输入通道已就绪…`       | idle → person → scrfd on         |
 | Stable face      | `AI>` greeting + TTS          | Active, `SetBannerLine`          |
-| Question         | `YOU>` → stream `AI>`; FastAck + formal TTS streaming | `rkllm_run` + Planner            |
+| Question         | `YOU>` → stream `AI>`; Planner + formal TTS (short→Static, long→merge) | `rkllm_run` + Planner            |
 | Re-ask / leave   | New `YOU>` cancels audio      | Gate / `prompt_gate`             |
 
 
@@ -189,7 +189,7 @@ Notes: `UpdateAfterFrame` before draw; suppress YOLO person boxes when yolo+scrf
 | ----------------------- | ------------------------------------------------------------------- | ---------------------------------------------- |
 | **Gate / greet / `YOU>`** | `LlmGreeting`: Locked→Arming→Active→Grace; `prompt_gate` needs `IsReady()` | [llm-model-coordinator.md](llm-model-coordinator.md) |
 | **RKLLM**               | `infer_thread_` + `rkllm_run`; chunks → `PollDeferred`              | same                                           |
-| **TTS**                 | FastAck → Ingress → Planner → synth/play; when active **skip yolo infer only** | [tts-melotts.md](tts-melotts.md) (**acceptance**) |
+| **TTS**                 | Ingress → Planner → synth/play (short Static; gst idle prime after `Cancel`); when active **skip yolo infer only** | [tts-melotts.md](tts-melotts.md) (**acceptance**) |
 | **Adapter files**       | `adapters/{yolo,scrfd,llm,tts}/`                                    | [adapters.md](adapters.md)                     |
 
 

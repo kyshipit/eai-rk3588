@@ -13,7 +13,7 @@ Language: **中文** | [English](README.md)
 |------|------|
 | **视觉** | 有人 → 开 SCRFD 画人脸框；场景由 `ModelCoordinator` 去抖切换 |
 | **对话** | 人脸稳定 → 终端 `AI>` 问候；`YOU>` → RKLLM 流式回复（独立线程，不占每帧视觉） |
-| **语音** | `YOU>` 后 FastAck 短反馈（≤1s）+ 正式回答 TTS（需 `gst-launch-1.0`） |
+| **语音** | `YOU>` 后 LLM 正式回答 TTS（Planner + Melo；需 `gst-launch-1.0`）；问候 `PlayText` |
 | **配置** | 唯一默认：**`runtime/config/default.yaml`** |
 
 主程序：`edgeai_app`（在 `runtime/` 编译生成）。
@@ -66,7 +66,7 @@ python3 tools/check_config.py
 | 主题 | 文档 | 说明 |
 |------|------|------|
 | 平台架构与运行逻辑 | [architecture-and-runtime_CN.md](architecture-and-runtime_CN.md) | 分层、槽、启动顺序、Pipeline 线程、设计取舍 |
-| 语音 TTS | [tts-melotts_CN.md](tts-melotts_CN.md) | FastAck、Planner；**TTS 唯一验收依据**；断续/underrun/FastAck 见 §12 |
+| 语音 TTS | [tts-melotts_CN.md](tts-melotts_CN.md) | Planner、Static/Formal 路径；**TTS 唯一验收依据**；句首/断续见 §13 |
 | 对话与门控 | [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) | RKLLM、门控状态机、终端 `YOU>` 数据流 |
 | Adapter 源码 | [adapters_CN.md](adapters_CN.md) | `adapters/{yolo,scrfd,llm,tts}/` 文件职责 |
 | 故障排查 | [troubleshooting_CN.md](troubleshooting_CN.md) | 0 框、路径错、退出/崩溃；TTS 细节见 TTS 专文 |

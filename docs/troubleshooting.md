@@ -129,7 +129,7 @@ With `infer_threads: 3`, three identical Init log blocks are normal.
 
 ### TTS
 
-- Voice UX and TTS debug: [tts-melotts.md](tts-melotts.md) §12.
+- Voice UX and TTS debug: [tts-melotts.md](tts-melotts.md) §13.
 
 ---
 

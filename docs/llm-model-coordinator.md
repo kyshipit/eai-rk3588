@@ -92,7 +92,7 @@ sequenceDiagram
 [Auto greet] stable face → TryAutoPromptOnStableFace → SetBannerLine(auto_greeting_text_) → stdout AI>
   (no rkllm_run; not inserted when busy)
 
-[User chat] stdin YOU> → SubmitUserPrompt → SubmitPrompt (Cancel + PlayFastAck)
+[User chat] stdin YOU> → SubmitUserPrompt → SubmitPrompt (Cancel)
     → infer_thread_: fprintf("AI> ") → RunPromptSync → rkllm_run
     → StaticCallback: NORMAL printf("%s"); FINISH printf("\n")
     → OnLlmChunk: NORMAL/FINISH post TTS chunk events; FINISH queues deferred work
@@ -116,7 +116,7 @@ sequenceDiagram
 ## 4.1 TTS coordination
 
 ```text
-YOU> -> SubmitPrompt (Cancel + PlayFastAck)
+YOU> -> SubmitPrompt (Cancel)
      -> rkllm_run -> OnLlmChunk (NORMAL/FINISH) -> tts_events_
      -> PollDeferred -> TtsIngress -> TtsPlanner -> EnqueueFormalAnswer
      -> TtsWorker synth/play (see TTS doc)

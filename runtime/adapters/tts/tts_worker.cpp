@@ -230,7 +230,18 @@ void TtsWorker::PlayText(const std::string& text) {
 
 // 将流式正式回答片段清洗后追加到待合成队列。
 void TtsWorker::EnqueueFormalAnswer(const std::string& text) {
-    EnqueueCleaned(TtsTextSanitizer::Sanitize(text, max_speak_chars_), TextJobKind::FormalAnswer);
+    const std::string cleaned = TtsTextSanitizer::Sanitize(text, max_speak_chars_);
+    if (cleaned.empty()) {
+        return;
+    }
+    TextJobKind kind = TextJobKind::FormalAnswer;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (UseGreetingStyleSynth(cfg_, cleaned)) {
+            kind = TextJobKind::Static;
+        }
+    }
+    EnqueueCleaned(cleaned, kind);
 }
 
 // 兼容旧接口。
@@ -495,16 +506,7 @@ void TtsWorker::SynthesizeLoop() {
         const uint64_t job_generation = job.generation;
         const TextJobKind job_kind = job.kind;
         bool pushed = false;
-        if (job_kind == TextJobKind::FormalAnswer && UseGreetingStyleSynth(cfg_, job.text)) {
-            // 短答：与 PlayText(Static) 完全相同的合成→trim→入队，不做 merge/Trailing 二次处理。
-            pushed = session_.SynthesizeTextStreaming(
-                job.text, [this, job_generation](std::vector<float>&& pcm_chunk) {
-                    if (!pcm_chunk.empty()) {
-                        TrimAbsoluteLeadingSilence(pcm_chunk);
-                    }
-                    return PushPcmChunk(job_generation, std::move(pcm_chunk), PcmJobKind::Formal);
-                });
-        } else if (job_kind == TextJobKind::FormalAnswer) {
+        if (job_kind == TextJobKind::FormalAnswer) {
             // 长答：Melo 多分句时 job 内合并 PCM，一次 PlayPcm，避免块间断粮。
             std::vector<float> merged_pcm;
             const bool emitted = session_.SynthesizeTextStreaming(

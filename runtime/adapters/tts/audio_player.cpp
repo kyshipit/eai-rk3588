@@ -4,22 +4,31 @@
 #include "audio_player.h"
 
 #include <atomic>
+#include <chrono>
 #include <cerrno>
+#include <cstddef>
 #include <fcntl.h>
 #include <mutex>
 #include <string>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
 
 #include "platform/logging.h"
 
 namespace {
 constexpr int kChannels = 1;
+constexpr size_t kColdPrimeSamples = 2205;
+constexpr size_t kIdlePrimeSamples = 4410;
+constexpr int kIdlePrimeThresholdMs = 300;
 std::atomic<pid_t> g_play_pid(0);
 std::atomic<int> g_write_fd(-1);
 std::atomic<int> g_sample_rate(0);
+std::atomic<bool> g_stream_needs_cold_prime(false);
+std::atomic<bool> g_have_written_pcm(false);
 std::mutex g_pipe_mutex;
+std::chrono::steady_clock::time_point g_last_pcm_write_tp = std::chrono::steady_clock::now();
 
 // 关闭全局写端 fd（若存在）。
 void CloseWriteFdLocked() {
@@ -91,6 +100,7 @@ bool StartStreamProcessLocked(int sample_rate) {
     g_play_pid.store(pid);
     g_write_fd.store(fds[1]);
     g_sample_rate.store(sample_rate);
+    g_stream_needs_cold_prime.store(true);
     return true;
 }
 
@@ -133,6 +143,38 @@ bool WriteAllLocked(const void* data, size_t size) {
     }
     return true;
 }
+
+// 管道冷启动或长时间无写入后，先灌一段可丢弃静音，避免真实句首被 gst 吃掉。
+bool PrimeStreamIfNeededLocked() {
+    size_t prime_samples = 0;
+    if (g_stream_needs_cold_prime.load()) {
+        prime_samples = kColdPrimeSamples;
+        g_stream_needs_cold_prime.store(false);
+    } else if (g_have_written_pcm.load()) {
+        const auto idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - g_last_pcm_write_tp)
+                                 .count();
+        if (idle_ms >= kIdlePrimeThresholdMs) {
+            prime_samples = kIdlePrimeSamples;
+        }
+    }
+    if (prime_samples == 0) {
+        return true;
+    }
+    const std::vector<float> prime(prime_samples, 0.0f);
+    if (!WriteAllLocked(prime.data(), prime.size() * sizeof(float))) {
+        return false;
+    }
+    LogInfo("AudioPlayer: primed stream (%zu samples idle=%d)",
+            prime_samples, g_have_written_pcm.load() ? 1 : 0);
+    return true;
+}
+
+// 记录一次真实 PCM 写入完成时刻，供 idle priming 判定。
+void MarkPcmWriteDoneLocked() {
+    g_have_written_pcm.store(true);
+    g_last_pcm_write_tp = std::chrono::steady_clock::now();
+}
 }  // namespace
 
 // 终止常驻播放子进程并清理管道句柄。
@@ -144,6 +186,8 @@ void AudioPlayer::Stop() {
         waitpid(pid, nullptr, WNOHANG);
     }
     g_sample_rate.store(0);
+    g_stream_needs_cold_prime.store(false);
+    g_have_written_pcm.store(false);
 }
 
 // 将本段 float PCM 追加写入常驻管道，由单实例播放器连续输出。
@@ -156,8 +200,21 @@ bool AudioPlayer::PlayPcm(const std::vector<float>& pcm, int sample_rate) {
         LogWarn("AudioPlayer: ensure stream process failed");
         return false;
     }
+    if (!PrimeStreamIfNeededLocked()) {
+        LogWarn("AudioPlayer: stream prime failed, restart once");
+        const pid_t pid = g_play_pid.exchange(0);
+        if (pid > 1) {
+            kill(pid, SIGTERM);
+            waitpid(pid, nullptr, WNOHANG);
+        }
+        CloseWriteFdLocked();
+        if (!StartStreamProcessLocked(sample_rate) || !PrimeStreamIfNeededLocked()) {
+            return false;
+        }
+    }
     const size_t bytes = pcm.size() * sizeof(float);
     if (WriteAllLocked(pcm.data(), bytes)) {
+        MarkPcmWriteDoneLocked();
         return true;
     }
     LogWarn("AudioPlayer: write pipe failed, restart stream once");
@@ -167,8 +224,12 @@ bool AudioPlayer::PlayPcm(const std::vector<float>& pcm, int sample_rate) {
         waitpid(pid, nullptr, WNOHANG);
     }
     CloseWriteFdLocked();
-    if (!StartStreamProcessLocked(sample_rate)) {
+    if (!StartStreamProcessLocked(sample_rate) || !PrimeStreamIfNeededLocked()) {
         return false;
     }
-    return WriteAllLocked(pcm.data(), bytes);
+    if (!WriteAllLocked(pcm.data(), bytes)) {
+        return false;
+    }
+    MarkPcmWriteDoneLocked();
+    return true;
 }

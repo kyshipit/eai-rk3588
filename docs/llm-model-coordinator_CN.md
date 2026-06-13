@@ -92,7 +92,7 @@ sequenceDiagram
 【自动问候】人脸稳定 → TryAutoPromptOnStableFace → SetBannerLine(auto_greeting_text_) → stdout AI>
   （不经 rkllm_run；busy 时不插入）
 
-【用户对话】stdin YOU> → SubmitUserPrompt → SubmitPrompt（Cancel + PlayFastAck）
+【用户对话】stdin YOU> → SubmitUserPrompt → SubmitPrompt（Cancel）
     → infer_thread_: fprintf("AI> ") → RunPromptSync → rkllm_run
     → StaticCallback: NORMAL printf("%s"); FINISH printf("\n")
     → OnLlmChunk: NORMAL/FINISH 投递 TTS chunk event；FINISH 时排队 deferred
@@ -116,7 +116,7 @@ sequenceDiagram
 ## 4.1 与 TTS 协同
 
 ```text
-YOU> -> SubmitPrompt (Cancel + PlayFastAck)
+YOU> -> SubmitPrompt (Cancel)
      -> rkllm_run -> OnLlmChunk (NORMAL/FINISH) -> tts_events_
      -> PollDeferred -> TtsIngress -> TtsPlanner -> EnqueueFormalAnswer
      -> TtsWorker 合成/播放（详见 TTS 主文档）

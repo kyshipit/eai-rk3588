@@ -13,7 +13,7 @@ Language: **English** | [中文](README_CN.md)
 |-----------|------|
 | **Vision** | Person present → enable SCRFD face boxes; scene debounced by `ModelCoordinator` |
 | **Dialogue** | Stable face → terminal `AI>` greeting; `YOU>` → streaming RKLLM (dedicated thread, not per-frame vision) |
-| **Speech** | After `YOU>`: FastAck (≤1s) + formal answer TTS (requires `gst-launch-1.0`) |
+| **Speech** | After `YOU>`: formal answer TTS (Planner + Melo; needs `gst-launch-1.0`); greeting via `PlayText` |
 | **Config** | Default source: **`runtime/config/default.yaml`** |
 
 Main binary: `edgeai_app` (built under `runtime/`).
@@ -66,7 +66,7 @@ python3 tools/check_config.py
 | Topic | Document | Notes |
 |-------|----------|-------|
 | Platform architecture and runtime | [architecture-and-runtime.md](architecture-and-runtime.md) | Layers, slots, startup order, Pipeline threads, trade-offs |
-| Speech / TTS | [tts-melotts.md](tts-melotts.md) | FastAck, Planner; **sole TTS acceptance doc**; gaps/underrun/FastAck see §12 |
+| Speech / TTS | [tts-melotts.md](tts-melotts.md) | Planner, Static/Formal paths; **sole TTS acceptance doc**; onset/gaps see §13 |
 | Dialogue and face gate | [llm-model-coordinator.md](llm-model-coordinator.md) | RKLLM, gate FSM, terminal `YOU>` flow |
 | Adapter source | [adapters.md](adapters.md) | `adapters/{yolo,scrfd,llm,tts}/` file roles |
 | Troubleshooting | [troubleshooting.md](troubleshooting.md) | Zero boxes, wrong paths, exit/crash; TTS details in TTS doc |

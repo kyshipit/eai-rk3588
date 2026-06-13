@@ -25,7 +25,7 @@ Language: **中文** | [English](architecture-and-runtime.md)
 | 加载中        | `SYS> 对话模型加载中…`                      | `Initializing`           |
 | 待机 → 走近    | Ready 后 `输入通道已就绪…`                   | idle → person → 启用 scrfd |
 | 驻足         | `AI>` 问候 + TTS                       | Active，`SetBannerLine`   |
-| 提问         | `YOU>` → 流式 `AI>`；FastAck + 流式正式 TTS | `rkllm_run` + Planner    |
+| 提问         | `YOU>` → 流式 `AI>`；Planner + 正式 TTS（短答 Static / 长答 merge） | `rkllm_run` + Planner    |
 | 连问 / 离开    | 新 `YOU>` Cancel 旧音；Grace 后拒输入        | 门控 / `prompt_gate`       |
 
 
@@ -189,7 +189,7 @@ flowchart LR
 | -------------------- | -------------------------------------------------------------------- | ------------------------------------------------------ |
 | **门控 / 问候 / `YOU>`** | `LlmGreeting`：Locked→Arming→Active→Grace；`prompt_gate` 须 `IsReady()` | [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) |
 | **RKLLM**            | `infer_thread_` + `rkllm_run`；chunk → `PollDeferred`                 | 同上                                                     |
-| **TTS**              | FastAck → Ingress → Planner → 合成/播放；TTS 活跃时 **仅跳 yolo 推理**           | [tts-melotts_CN.md](tts-melotts_CN.md)（**验收**）       |
+| **TTS**              | Ingress → Planner → 合成/播放（短答 Static；`Cancel` 后 gst idle prime）；TTS 活跃时 **仅跳 yolo 推理** | [tts-melotts_CN.md](tts-melotts_CN.md)（**验收**）       |
 | **适配器文件**            | `adapters/{yolo,scrfd,llm,tts}/`                                     | [adapters_CN.md](adapters_CN.md)                                   |
 
 

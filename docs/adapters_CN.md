@@ -47,7 +47,7 @@ Language: **中文** | [English](adapters.md)
 将 **`AI>` 可播正文** 合成为语音（44100Hz）：
 
 - 静态问候（`SetBannerLine` → `PlayText`）
-- `YOU>` 后正式回答（FastAck 短反馈 + TtsPlanner 流式规划 → `EnqueueFormalAnswer`）
+- `YOU>` 后正式回答（`TtsPlanner` → `EnqueueFormalAnswer`；短答入队 Static，长答 job 内 merge PCM）
 
 终端可见 thinking；**不进入 TTS**。
 
@@ -57,7 +57,7 @@ Language: **中文** | [English](adapters.md)
 |------|------|
 | `tts_ingress.*` | thinking/tag 过滤；UTF-8 输入整理 |
 | `tts_planner.*` | 流式规划正式回答片段；中/英 emit 阈值 |
-| `tts_worker.*` | FastAck / FormalAnswer；合成前合并批次；`generation_` 抢占 |
+| `tts_worker.*` | Static / FormalAnswer；短答 Static 入队；长答合成前合并；`generation_` 抢占 |
 | `melotts_session.*` | RKNN 合成；`SynthesizeTextStreaming` 句级增量 PCM |
 | `audio_player.*` | 常驻 `gst-launch-1.0` 管道写 float32 PCM |
 | `tts_text_sanitizer.*` | 仅 `max_speak_chars` 截断 |

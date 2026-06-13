@@ -14,7 +14,7 @@
 | 启动          | 预览窗；`SYS>` 模型加载中 / 就绪    | 读 yaml；预加载 RKLLM、TTS（可选）；同步 Init YOLO                                                  |
 | 待机 / 有人     | 人形框；有人后为人脸框              | 场景 idle→person 去抖；person 时启用 SCRFD                                                     |
 | 人脸稳定        | `AI>` 问候 + 扬声器播报         | 静态问候 `SetBannerLine` + `PlayText`（`skip_static_greeting=false` 时）                      |
-| 用户输入 `YOU>` | 短反馈音 → 流式 `AI>` → 正式回答语音 | FastAck 预缓存短反馈（`model.tts.fast_ack`，≤1s）→ RKLLM 旁路 → MeloTTS 流式播报；需 **gst-launch-1.0** |
+| 用户输入 `YOU>` | 流式 `AI>` → 正式回答语音 | `SubmitPrompt` → `Cancel` → RKLLM → Planner → MeloTTS（短答 Static / 长答 merge）；需 **gst-launch-1.0** |
 | 再次 `YOU>`   | 旧播报停止，只跟最新一轮             | `TtsWorker::Cancel`                                                                    |
 | 人脸离开        | Grace 内或仍受理；超时后拒新输入      | Locked / Grace 状态机                                                                     |
 | 缺 `.rkllm`  | 预览正常，无问候与对话              | 仅视觉模式（`SYS>` 提示）                                                                       |
