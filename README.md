@@ -93,7 +93,7 @@ edgeai_platform/
 │   ├── app/ engine/ platform/ capture/ display/
 │   ├── adapters/yolo|scrfd|llm|tts/
 │   └── config/default.yaml
-└── verify/         # PC-side RKNN checks, not used on board
+└── tools/          # dev/integration helpers (config & model checks, etc.), not used on board
 ```
 
 ## License

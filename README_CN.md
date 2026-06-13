@@ -91,7 +91,7 @@ edgeai_platform/
 │   ├── app/ engine/ platform/ capture/ display/
 │   ├── adapters/yolo|scrfd|llm|tts/
 │   └── config/default.yaml
-└── verify/         # PC 侧 rknn 验证，不参与板端运行
+└── tools/          # 开发/集成辅助（配置校验、模型文件检查等），不参与板端运行
 ```
 
 ## License

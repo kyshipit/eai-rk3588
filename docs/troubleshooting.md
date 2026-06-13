@@ -58,6 +58,7 @@ With `infer_threads: 3`, three identical Init log blocks are normal.
 
 - Relative `./model/...` depends on **cwd at launch**; from `install/...` compare `install/model/` with the tree `model/`.
 - Use `model.yolo.path` / `model.scrfd.path`; legacy top-level `model.path` is removed.
+- Before push, from repo root: `python3 tools/check_config.py` (yaml structure) and `./tools/check_models.sh` (model files; use `--cwd` matching the board launch directory).
 - Optional: `YoloAdapter: model realpath=...`, file size, RKNN api/driver version in logs.
 
 ### On-board checklist

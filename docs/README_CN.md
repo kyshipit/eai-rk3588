@@ -49,6 +49,16 @@ model.tts.skip_static_greeting: true   # 不播人脸稳定后的静态问候
 
 仅视觉：缺 `.rkllm` 或 init 失败 → 预览正常，`SYS> 仅视觉模式…`，无问候、不接收 `YOU>`。
 
+**push 前本地检查**（在仓库根目录）：
+
+```bash
+python3 tools/check_config.py
+./tools/check_models.sh
+```
+
+- `check_config.py`：校验 `default.yaml` 字段、类型与范围（不检查磁盘文件）。
+- `check_models.sh`：按 yaml 检查 `model/` 下 rknn、词表等是否存在；缺 `.rkllm` 为 WARN。
+
 ---
 
 ## 文档索引
@@ -74,6 +84,7 @@ model.tts.skip_static_greeting: true   # 不播人脸稳定后的静态问候
 | RKLLM | `runtime/adapters/llm/` |
 | TTS | `runtime/adapters/tts/` |
 | 默认配置 | `runtime/config/default.yaml` |
+| 开发辅助 | `tools/`（`check_config.py`、`check_models.sh`） |
 
 **勿随意改**：`runtime/3rdparty/`、`runtime/utils/`（正点原子 / RK 上游）。
 

@@ -49,6 +49,16 @@ model.tts.skip_static_greeting: true   # skip static greeting TTS after stable f
 
 Vision-only: missing `.rkllm` or init failure → preview OK, `SYS> 仅视觉模式…`, no greeting, no `YOU>`.
 
+**Local checks before push** (from repo root):
+
+```bash
+python3 tools/check_config.py
+./tools/check_models.sh
+```
+
+- `check_config.py`: validates `default.yaml` keys, types, and ranges (no filesystem checks).
+- `check_models.sh`: checks rknn/lexicon paths from yaml; missing `.rkllm` is WARN.
+
 ---
 
 ## Documentation index
@@ -74,6 +84,7 @@ Vision-only: missing `.rkllm` or init failure → preview OK, `SYS> 仅视觉模
 | RKLLM | `runtime/adapters/llm/` |
 | TTS | `runtime/adapters/tts/` |
 | Default config | `runtime/config/default.yaml` |
+| Dev helpers | `tools/` (`check_config.py`, `check_models.sh`) |
 
 **Do not edit casually**: `runtime/3rdparty/`, `runtime/utils/` (upstream ALIENTEK / RK).
 

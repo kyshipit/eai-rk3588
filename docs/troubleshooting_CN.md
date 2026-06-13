@@ -58,6 +58,7 @@ model.scrfd.path: ./model/scrfd.rknn
 
 - 相对路径 `./model/...` 依赖**启动时的当前工作目录**；从 `install/...` 启动时核对 `install/model/` 与源码树 `model/` 是否一致。
 - 配置项已统一为 `model.yolo.path` / `model.scrfd.path`；旧版顶层 `model.path` 已废弃。
+- push 前可在仓库根运行 `python3 tools/check_config.py`（yaml 结构）与 `./tools/check_models.sh`（模型文件；`--cwd` 指向与板端相同的启动目录）。
 - 可选：查看 `YoloAdapter: model realpath=...`、文件大小、RKNN api/drv 版本。
 
 ### 板端验证 Checklist
