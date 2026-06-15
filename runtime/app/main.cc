@@ -140,8 +140,6 @@ int main(int argc, char** argv) {
     bool llm_preload_on_startup = cfg.GetBool("model.llm.preload_on_startup");
     // 自动问候语（检测到稳定人脸后输出）。
     std::string llm_auto_greeting_text = cfg.GetString("model.llm.auto_greeting_text");
-    // 拼入 User 段末尾的约束文案（空串则 User 段仅含终端输入）。
-    std::string llm_user_prompt_prefix = cfg.GetString("model.llm.user_prompt_prefix");
     bool llm_tts_enabled = cfg.GetBool("model.tts.enabled");
     bool llm_tts_skip_greeting = cfg.GetBool("model.tts.skip_static_greeting");
     int llm_tts_max_chars = cfg.GetInt("model.tts.max_speak_chars");
@@ -196,8 +194,7 @@ int main(int argc, char** argv) {
         coordinator.GetLlmGreeting().SetAutoGreetingText(llm_auto_greeting_text);
         if (llm_enabled) {
             llm_worker = std::make_shared<LlmWorker>();
-            llm_worker->Configure(llm_model_path, llm_max_new_tokens, llm_max_context_len,
-                                  llm_user_prompt_prefix);
+            llm_worker->Configure(llm_model_path, llm_max_new_tokens, llm_max_context_len);
             coordinator.GetLlmGreeting().SetLlmWorker(llm_worker.get());
             if (llm_preload_on_startup) {
                 llm_worker->RequestInitializeAsync();

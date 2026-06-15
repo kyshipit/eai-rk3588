@@ -25,11 +25,11 @@ model:
     # 是否启用 LLM 能力。false 时仅视觉链路运行。
     enabled: true
     # RKLLM 模型路径（.rkllm）。
-    path: ./model/deepseek-1.5b-w8a8-rk3588.rkllm
-    # 单轮最大新 token 数；与 max_context_len 同值可避免长回答被截断。
-    max_new_tokens: 4096
+    path: ./model/qwen2.5-1.5b_W8A8_RK3588.rkllm
+    # 单轮最大新 token 数；Qwen2.5-1.5B W8A8 上限 2048。
+    max_new_tokens: 2048
     # 上下文长度上限。
-    max_context_len: 4096
+    max_context_len: 2048
     # 程序启动后是否立即异步预加载模型（减少首次调用卡顿）。
     preload_on_startup: true
     # SCRFD 槽位激活时是否触发预加载。
@@ -44,8 +44,6 @@ model:
     idle_timeout_ms: 60000
     # 自动问候语（稳定识别人脸后输出一次）。
     auto_greeting_text: "您好，需要帮忙吗"
-    # 拼在 User 段末尾的约束（用户话在前；空串则仅终端输入）。
-    user_prompt_prefix: "一句话回答"
 
   # MeloTTS：旁路播报 AI> 话术（与 llm 并列；启动时仍要求 model.llm.enabled=true）。
   tts:

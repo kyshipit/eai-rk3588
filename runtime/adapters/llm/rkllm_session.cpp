@@ -13,14 +13,7 @@
 
 namespace {
 RkllmSession* g_active_session = nullptr;
-constexpr const char* kPromptPrefix = "<｜begin▁of▁sentence｜><｜User｜>";
-constexpr const char* kPromptPostfix = "<｜Assistant｜>";
 }  // namespace
-
-// 写入 RunPromptSync 拼在 User 段末尾的约束；空串时不改变原有 User|Assistant 模板。
-void RkllmSession::SetUserPromptPrefix(const std::string& user_prompt_prefix) {
-    user_prompt_prefix_ = user_prompt_prefix;
-}
 
 // 默认构造；句柄为空。
 RkllmSession::RkllmSession() {
@@ -33,7 +26,7 @@ RkllmSession::~RkllmSession() {
     Shutdown();
 }
 
-// 初始化 RKLLM：设置默认参数、注册库回调、保存上层 chunk_fn。
+// 初始化 RKLLM：对齐 Qwen2.5 demo（embed_flash、采样参数、注册回调）。
 int RkllmSession::Init(const std::string& model_path, int max_new_tokens, int max_context_len,
                          RkllmChunkFn chunk_fn, void* user_data) {
     LogDebug("LLM_DBG RkllmSession::Init enter this=%p path=%s max_new=%d max_ctx=%d chunk_fn=%p user=%p",
@@ -53,7 +46,6 @@ int RkllmSession::Init(const std::string& model_path, int max_new_tokens, int ma
     param.repeat_penalty = 1.1f;
     param.frequency_penalty = 0.0f;
     param.presence_penalty = 0.0f;
-    // 仅当配置 >0 时覆盖 rkllm_createDefaultParam 的 max_new_tokens / max_context_len。
     if (max_new_tokens > 0) {
         param.max_new_tokens = max_new_tokens;
     }
@@ -62,6 +54,7 @@ int RkllmSession::Init(const std::string& model_path, int max_new_tokens, int ma
     }
     param.skip_special_token = true;
     param.extend_param.base_domain_id = 0;
+    param.extend_param.embed_flash = 1;
 
     LogDebug("LLM_DBG RkllmSession::Init calling rkllm_init pthread=%p",
              reinterpret_cast<void*>(pthread_self()));
@@ -79,27 +72,22 @@ int RkllmSession::Init(const std::string& model_path, int max_new_tokens, int ma
     return ret;
 }
 
-// rkllm_run 阻塞至本轮结束；NORMAL 在 StaticCallback 内直接 printf。
+// rkllm_run 阻塞至本轮结束；使用模型内置 chat template（role=user，单轮 keep_history=0）。
 int RkllmSession::RunPromptSync(const std::string& user_text) {
     if (!handle_ || !chunk_fn_) {
         return -1;
     }
-    prompt_buffer_.assign(kPromptPrefix);
-    prompt_buffer_.append(user_text);
-    if (!user_prompt_prefix_.empty()) {
-        prompt_buffer_.push_back('\n');
-        prompt_buffer_.append(user_prompt_prefix_);
-    }
-    prompt_buffer_.append(kPromptPostfix);
+    prompt_buffer_ = user_text;
 
     std::memset(&run_input_, 0, sizeof(run_input_));
     run_input_.input_type = RKLLM_INPUT_PROMPT;
+    run_input_.role = "user";
     run_input_.prompt_input = prompt_buffer_.c_str();
 
     std::memset(&run_infer_param_, 0, sizeof(run_infer_param_));
     run_infer_param_.mode = RKLLM_INFER_GENERATE;
+    run_infer_param_.keep_history = 0;
 
-    // userdata 传 NULL，回调经 g_active_session 定位当前会话实例。
     return rkllm_run(handle_, &run_input_, &run_infer_param_, nullptr);
 }
 
@@ -170,14 +158,14 @@ std::string RkllmSession::TakeReplyAccumulator() {
     return out;
 }
 
-// librkllmrt 回调：NORMAL/FINISH 直写 stdout；状态经 chunk_fn_ 通知上层。
-void RkllmSession::StaticCallback(RKLLMResult* result, void* userdata, LLMCallState state) {
+// librkllmrt 回调：NORMAL/FINISH 直写 stdout；状态经 chunk_fn_ 通知上层；返回 0 继续推理。
+int RkllmSession::StaticCallback(RKLLMResult* result, void* userdata, LLMCallState state) {
     RkllmSession* self = static_cast<RkllmSession*>(userdata);
     if (!self || self->magic_ != kMagic) {
         self = g_active_session;
     }
     if (!self || self->magic_ != kMagic) {
-        return;
+        return 0;
     }
 
     if (state == RKLLM_RUN_FINISH) {
@@ -194,9 +182,9 @@ void RkllmSession::StaticCallback(RKLLMResult* result, void* userdata, LLMCallSt
         }
     }
 
-    if (!self->chunk_fn_) {
-        return;
+    if (self->chunk_fn_) {
+        const char* chunk = (result && result->text) ? result->text : "";
+        self->chunk_fn_(chunk, state, self->chunk_user_data_);
     }
-    const char* chunk = (result && result->text) ? result->text : "";
-    self->chunk_fn_(chunk, state, self->chunk_user_data_);
+    return 0;
 }

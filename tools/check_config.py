@@ -34,7 +34,6 @@ REQUIRED_KEYS: list[tuple[str, str]] = [
     ("model.llm.grace_timeout_ms", "int"),
     ("model.llm.idle_timeout_ms", "int"),
     ("model.llm.auto_greeting_text", "str"),
-    ("model.llm.user_prompt_prefix", "str"),
     ("model.tts.enabled", "bool"),
     ("model.tts.skip_static_greeting", "bool"),
     ("model.tts.encoder_path", "str"),
