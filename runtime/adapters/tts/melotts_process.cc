@@ -13,16 +13,17 @@
 // Modify from https://github.com/airockchip/rknn_model_zoo/blob/main/examples/mms_tts/cpp/process.cc
 
 #include "melotts_process.h"
+
+#include <algorithm>
 #include <math.h>
+#include <numeric>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <vector>
-#include <iostream>
-#include <map>
 #include <string.h>
-#include <algorithm>
-#include <numeric>
+#include <vector>
+
+#include "platform/logging.h"
 
 // 按真实预测长度生成 decoder 输出侧 padding mask。
 static void compute_output_padding_mask(std::vector<float> &output_padding_mask, int predicted_lengths_max_real, int predicted_lengths_max)
@@ -135,10 +136,9 @@ void middle_process(std::vector<float> log_w, std::vector<float> x_mask, std::ve
     float predicted_length_sum = std::accumulate(w.begin(), w.end(), 0.0f);
     predicted_lengths_max_real = std::max(1.0f, predicted_length_sum);
     int predicted_lengths_max = PREDICTED_LENGTHS_MAX;
-    if(predicted_lengths_max_real > predicted_lengths_max)
-    {
-        //TODO
-        printf("predicted_lengths_max_real > PREDICTED_LENGTHS_MAX \n");
+    if (predicted_lengths_max_real > predicted_lengths_max) {
+        LogWarn("MeloTTS: predicted_lengths_max_real %d > PREDICTED_LENGTHS_MAX %d, truncating tail",
+                predicted_lengths_max_real, predicted_lengths_max);
         predicted_lengths_max_real = predicted_lengths_max;
     }
     compute_output_padding_mask(y_mask, predicted_lengths_max_real, predicted_lengths_max);

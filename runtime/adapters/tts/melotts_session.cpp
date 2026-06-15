@@ -4,6 +4,7 @@
 #include "melotts_session.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <map>
 
@@ -35,6 +36,78 @@ const std::map<std::string, int> kLanguageIdMap = {
     {"ZH", 0},       {"JP", 1},       {"EN", 2}, {"ZH_MIX_EN", 3},
     {"KR", 4},       {"SP", 5},       {"ES", 5}, {"FR", 6},
 };
+
+// 读取 s[i] 处 UTF-8 码点字节长度。
+size_t Utf8CharLenAt(const std::string& s, size_t i) {
+    if (i >= s.size()) {
+        return 0;
+    }
+    const unsigned char c = s[i];
+    if ((c & 0x80) == 0) {
+        return 1;
+    }
+    if ((c & 0xE0) == 0xC0 && i + 1 < s.size()) {
+        return 2;
+    }
+    if ((c & 0xF0) == 0xE0 && i + 2 < s.size()) {
+        return 3;
+    }
+    if ((c & 0xF8) == 0xF0 && i + 3 < s.size()) {
+        return 4;
+    }
+    return 1;
+}
+
+// 判断文本是否以英文拉丁字母为主（相对 CJK）。
+bool IsMostlyEnglish(const std::string& text) {
+    size_t ascii_letters = 0;
+    size_t cjk_chars = 0;
+    for (size_t i = 0; i < text.size();) {
+        const unsigned char c = text[i];
+        if (std::isalpha(c)) {
+            ++ascii_letters;
+            ++i;
+            continue;
+        }
+        if ((c & 0xE0) == 0xE0 && i + 2 < text.size()) {
+            ++cjk_chars;
+        }
+        i += Utf8CharLenAt(text, i);
+    }
+    return ascii_letters > cjk_chars;
+}
+
+// 统计前缀英文词数（空白分隔，含撇号连写）。
+size_t CountEnglishWords(const std::string& text) {
+    size_t words = 0;
+    bool in_word = false;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const unsigned char c = text[i];
+        if (std::isalpha(c) || c == '\'') {
+            if (!in_word) {
+                ++words;
+                in_word = true;
+            }
+            continue;
+        }
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            in_word = false;
+        }
+    }
+    return words;
+}
+
+// 长英文段字符数少但音素多，single-shot 可能超 PREDICTED_LENGTHS_MAX，改走 split_sentence。
+bool ShouldForceSplitForDecoderLimit(const std::string& text) {
+    if (!IsMostlyEnglish(text)) {
+        return false;
+    }
+    const size_t chars = utf8_strlen(text);
+    if (chars <= 48) {
+        return false;
+    }
+    return CountEnglishWords(text) > 8 || chars > 48;
+}
 
 }  // namespace
 
@@ -174,7 +247,8 @@ bool MeloTtsSession::SynthesizeTextStreaming(const std::string& text,
     const int split_min_chars = std::max(4, std::min(24, cfg_.split_min_chars));
     const int single_shot_max = std::max(0, cfg_.single_shot_max_chars);
     const size_t text_chars = utf8_strlen(text);
-    if (single_shot_max > 0 && static_cast<int>(text_chars) <= single_shot_max) {
+    const bool force_split = ShouldForceSplitForDecoderLimit(text);
+    if (!force_split && single_shot_max > 0 && static_cast<int>(text_chars) <= single_shot_max) {
         std::vector<float> chunk_pcm;
         if (!SynthesizeOneSentenceUnlocked(text, lang_id, chunk_pcm)) {
             return false;

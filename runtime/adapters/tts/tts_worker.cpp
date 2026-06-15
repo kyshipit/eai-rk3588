@@ -10,6 +10,7 @@
 
 #include "audio_player.h"
 #include "melotts_process.h"
+#include "melotts_process.h"
 #include "platform/logging.h"
 #include "split.hpp"
 #include "tts_text_sanitizer.h"
@@ -251,6 +252,7 @@ void TtsWorker::EnqueueSentence(const std::string& text) {
 
 // 停止播放并清空待合成/待播放；代际号自增以丢弃旧会话在途任务（不杀 gst，保管道连续）。
 void TtsWorker::Cancel() {
+    AudioPlayer::BeginIdleKeepalive(SAMPLE_RATE);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         FinalizeGenerationStatsUnlocked();

@@ -355,12 +355,11 @@ void Pipeline::PollTerminalPromptInput() {
                 continue;
             }
 
-            // 先回显 YOU>，再尝试提交门控，失败会打印 rejected 调试日志。
+            // 先回显 YOU>，再在起推理线程前打 DBG，避免 stderr 与 stdout AI> 竞态粘行。
             LogUser("%s", line.c_str());
+            LogDebug("Pipeline: terminal prompt submitting (%zu chars)", line.size());
             const bool accepted = coordinator_.GetLlmGreeting().SubmitUserPrompt(line);
-            if (accepted) {
-                LogDebug("Pipeline: terminal prompt submitted (%zu chars)", line.size());
-            } else {
+            if (!accepted) {
                 LogDebug("Pipeline: terminal prompt rejected");
             }
             continue;

@@ -12,6 +12,7 @@
 #include <string>
 #include <signal.h>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -20,8 +21,12 @@
 namespace {
 constexpr int kChannels = 1;
 constexpr size_t kColdPrimeSamples = 2205;
-constexpr size_t kIdlePrimeSamples = 4410;
+// idle 后 priming 加长到 ~200ms，作为 keepalive 未覆盖时的兜底。
+constexpr size_t kIdlePrimeSamples = 8820;
 constexpr int kIdlePrimeThresholdMs = 300;
+constexpr int kKeepaliveIntervalMs = 200;
+constexpr size_t kKeepaliveChunkSamples = 1764;
+constexpr int kKeepaliveMaxMs = 120000;
 std::atomic<pid_t> g_play_pid(0);
 std::atomic<int> g_write_fd(-1);
 std::atomic<int> g_sample_rate(0);
@@ -29,6 +34,8 @@ std::atomic<bool> g_stream_needs_cold_prime(false);
 std::atomic<bool> g_have_written_pcm(false);
 std::mutex g_pipe_mutex;
 std::chrono::steady_clock::time_point g_last_pcm_write_tp = std::chrono::steady_clock::now();
+std::atomic<bool> g_keepalive_stop{true};
+std::thread g_keepalive_thread;
 
 // 关闭全局写端 fd（若存在）。
 void CloseWriteFdLocked() {
@@ -175,10 +182,43 @@ void MarkPcmWriteDoneLocked() {
     g_have_written_pcm.store(true);
     g_last_pcm_write_tp = std::chrono::steady_clock::now();
 }
+
+// Cancel 后 LLM 空档：周期性写入微量静音，使距上次写入不超过 idle 阈值。
+void IdleKeepaliveLoop(int sample_rate) {
+    const auto started = std::chrono::steady_clock::now();
+    while (!g_keepalive_stop.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kKeepaliveIntervalMs));
+        if (g_keepalive_stop.load()) {
+            break;
+        }
+        const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count();
+        if (elapsed_ms >= kKeepaliveMaxMs) {
+            LogInfo("AudioPlayer: idle keepalive stopped after %d ms", kKeepaliveMaxMs);
+            break;
+        }
+        std::lock_guard<std::mutex> lock(g_pipe_mutex);
+        if (g_keepalive_stop.load()) {
+            break;
+        }
+        if (!EnsureStreamProcessLocked(sample_rate)) {
+            continue;
+        }
+        if (!PrimeStreamIfNeededLocked()) {
+            continue;
+        }
+        const std::vector<float> pad(kKeepaliveChunkSamples, 0.0f);
+        if (WriteAllLocked(pad.data(), pad.size() * sizeof(float))) {
+            MarkPcmWriteDoneLocked();
+        }
+    }
+}
 }  // namespace
 
 // 终止常驻播放子进程并清理管道句柄。
 void AudioPlayer::Stop() {
+    EndIdleKeepalive();
     std::lock_guard<std::mutex> lock(g_pipe_mutex);
     CloseWriteFdLocked();
     const pid_t pid = g_play_pid.exchange(0);
@@ -190,11 +230,31 @@ void AudioPlayer::Stop() {
     g_have_written_pcm.store(false);
 }
 
+// Cancel 后启动 keepalive，避免 gst 长时间无写入触发 idle priming 吞句首。
+void AudioPlayer::BeginIdleKeepalive(int sample_rate) {
+    if (sample_rate <= 0) {
+        return;
+    }
+    EndIdleKeepalive();
+    g_keepalive_stop.store(false);
+    g_keepalive_thread = std::thread(IdleKeepaliveLoop, sample_rate);
+    LogInfo("AudioPlayer: idle keepalive started (interval=%dms)", kKeepaliveIntervalMs);
+}
+
+// 真实 PCM 写入前结束 keepalive。
+void AudioPlayer::EndIdleKeepalive() {
+    g_keepalive_stop.store(true);
+    if (g_keepalive_thread.joinable()) {
+        g_keepalive_thread.join();
+    }
+}
+
 // 将本段 float PCM 追加写入常驻管道，由单实例播放器连续输出。
 bool AudioPlayer::PlayPcm(const std::vector<float>& pcm, int sample_rate) {
     if (pcm.empty() || sample_rate <= 0) {
         return false;
     }
+    EndIdleKeepalive();
     std::lock_guard<std::mutex> lock(g_pipe_mutex);
     if (!EnsureStreamProcessLocked(sample_rate)) {
         LogWarn("AudioPlayer: ensure stream process failed");

@@ -11,4 +11,8 @@ public:
     bool PlayPcm(const std::vector<float>& pcm, int sample_rate);
     // 终止当前常驻播放子进程（若存在）并清理管道。
     void Stop();
+    // YOU> Cancel 后 LLM 推理空档：周期性微量静音，避免 gst idle 后吞真实句首。
+    static void BeginIdleKeepalive(int sample_rate);
+    // 真实 PCM 即将写入时结束 keepalive（PlayPcm 内也会调用）。
+    static void EndIdleKeepalive();
 };
