@@ -30,6 +30,8 @@ model:
     max_new_tokens: 2048
     # 上下文长度上限。
     max_context_len: 2048
+    # 生成侧系统提示（rkllm_set_chat_template）；空串则用模型默认行为。
+    system_prompt: "你是语音对话助手。用中文纯文本简短回答，不要用 Markdown 或列表"
     # 程序启动后是否立即异步预加载模型（减少首次调用卡顿）。
     preload_on_startup: true
     # SCRFD 槽位激活时是否触发预加载。

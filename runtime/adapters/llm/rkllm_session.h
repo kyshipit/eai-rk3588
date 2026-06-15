@@ -20,10 +20,10 @@ public:
     RkllmSession(const RkllmSession&) = delete;
     RkllmSession& operator=(const RkllmSession&) = delete;
 
-    // 加载 .rkllm；注册 StaticCallback；chunk_fn 在推理回调里被调用（NORMAL/FINISH/ERROR）。
+    // 加载 .rkllm；可选 system_prompt 经 rkllm_set_chat_template 注入；注册 StaticCallback。
     int Init(const std::string& model_path, int max_new_tokens, int max_context_len,
-             RkllmChunkFn chunk_fn, void* user_data);
-    // rkllm_run 同步推理；role=user 走模型内置 chat template，回调线程直出 stdout。
+             const std::string& system_prompt, RkllmChunkFn chunk_fn, void* user_data);
+    // rkllm_run 同步推理；有自定义 ChatML 时不设 role，否则 role=user 走内置模板。
     int RunPromptSync(const std::string& user_text);
     int Abort();
     // Abort 后等待推理结束再 destroy，避免与回调并发。
@@ -47,6 +47,7 @@ private:
     void* chunk_user_data_ = nullptr;
     uint32_t magic_ = kMagic;
     std::string prompt_buffer_;
+    bool custom_chat_template_ = false;
     // 推理入参保存在成员上，避免库侧延迟访问栈对象。
     RKLLMInput run_input_;
     RKLLMInferParam run_infer_param_;

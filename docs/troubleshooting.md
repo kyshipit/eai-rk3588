@@ -125,7 +125,7 @@ With `infer_threads: 3`, three identical Init log blocks are normal.
 
 ### Truncated LLM replies
 
-- Check `max_new_tokens`; R1-style thinking consumes tokens → [llm-model-coordinator.md](llm-model-coordinator.md).
+- Check `max_new_tokens` and `max_context_len`; long replies may be truncated → [llm-model-coordinator.md](llm-model-coordinator.md).
 
 ### TTS
 

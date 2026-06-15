@@ -126,6 +126,8 @@ int main(int argc, char** argv) {
     int llm_max_new_tokens = cfg.GetInt("model.llm.max_new_tokens");
     // 上下文窗口长度上限。
     int llm_max_context_len = cfg.GetInt("model.llm.max_context_len");
+    // 生成侧系统提示（rkllm_set_chat_template）；空串则跳过。
+    std::string llm_system_prompt = cfg.GetString("model.llm.system_prompt");
     // 人脸稳定连续帧阈值（达到后打开对话门控）。
     int llm_face_stable_frames = cfg.GetInt("model.llm.face_stable_frames");
     // 人脸缺失连续帧阈值（达到后进入 Grace 宽限态）。
@@ -194,7 +196,8 @@ int main(int argc, char** argv) {
         coordinator.GetLlmGreeting().SetAutoGreetingText(llm_auto_greeting_text);
         if (llm_enabled) {
             llm_worker = std::make_shared<LlmWorker>();
-            llm_worker->Configure(llm_model_path, llm_max_new_tokens, llm_max_context_len);
+            llm_worker->Configure(llm_model_path, llm_max_new_tokens, llm_max_context_len,
+                                  llm_system_prompt);
             coordinator.GetLlmGreeting().SetLlmWorker(llm_worker.get());
             if (llm_preload_on_startup) {
                 llm_worker->RequestInitializeAsync();

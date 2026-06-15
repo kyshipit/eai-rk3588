@@ -13,6 +13,10 @@
 
 namespace {
 RkllmSession* g_active_session = nullptr;
+constexpr const char* kQwenSystemStart = "<|im_start|>system\n";
+constexpr const char* kQwenSystemEnd = "<|im_end|>\n";
+constexpr const char* kQwenUserPrefix = "<|im_start|>user\n";
+constexpr const char* kQwenUserPostfix = "<|im_end|>\n<|im_start|>assistant\n";
 }  // namespace
 
 // 默认构造；句柄为空。
@@ -26,9 +30,9 @@ RkllmSession::~RkllmSession() {
     Shutdown();
 }
 
-// 初始化 RKLLM：对齐 Qwen2.5 demo（embed_flash、采样参数、注册回调）。
+// 初始化 RKLLM；非空 system_prompt 走路径 A（完整 ChatML + rkllm_set_chat_template，推理时不设 role）。
 int RkllmSession::Init(const std::string& model_path, int max_new_tokens, int max_context_len,
-                         RkllmChunkFn chunk_fn, void* user_data) {
+                         const std::string& system_prompt, RkllmChunkFn chunk_fn, void* user_data) {
     LogDebug("LLM_DBG RkllmSession::Init enter this=%p path=%s max_new=%d max_ctx=%d chunk_fn=%p user=%p",
              static_cast<void*>(this), model_path.c_str(), max_new_tokens, max_context_len,
              reinterpret_cast<void*>(chunk_fn), user_data);
@@ -65,14 +69,31 @@ int RkllmSession::Init(const std::string& model_path, int max_new_tokens, int ma
         handle_ = nullptr;
         chunk_fn_ = nullptr;
         chunk_user_data_ = nullptr;
-    } else {
-        LogDebug("LLM_DBG RkllmSession::Init ok handle=%p g_active=%p",
-                 handle_, static_cast<void*>(g_active_session));
+        return ret;
     }
-    return ret;
+
+    custom_chat_template_ = false;
+
+    if (!system_prompt.empty()) {
+        const std::string wrapped_system =
+            std::string(kQwenSystemStart) + system_prompt + kQwenSystemEnd;
+        const int tpl_ret = rkllm_set_chat_template(handle_, wrapped_system.c_str(),
+                                                    kQwenUserPrefix, kQwenUserPostfix);
+        if (tpl_ret != 0) {
+            LogWarn("RkllmSession: rkllm_set_chat_template failed ret=%d", tpl_ret);
+            Shutdown();
+            return tpl_ret;
+        }
+        custom_chat_template_ = true;
+        LogDebug("LLM_DBG RkllmSession::Init ChatML system applied len=%zu", system_prompt.size());
+    }
+
+    LogDebug("LLM_DBG RkllmSession::Init ok handle=%p g_active=%p",
+             handle_, static_cast<void*>(g_active_session));
+    return 0;
 }
 
-// rkllm_run 阻塞至本轮结束；使用模型内置 chat template（role=user，单轮 keep_history=0）。
+// rkllm_run 阻塞至本轮结束；自定义 ChatML 时仅 prompt_input，否则 role=user 走内置模板。
 int RkllmSession::RunPromptSync(const std::string& user_text) {
     if (!handle_ || !chunk_fn_) {
         return -1;
@@ -81,8 +102,10 @@ int RkllmSession::RunPromptSync(const std::string& user_text) {
 
     std::memset(&run_input_, 0, sizeof(run_input_));
     run_input_.input_type = RKLLM_INPUT_PROMPT;
-    run_input_.role = "user";
     run_input_.prompt_input = prompt_buffer_.c_str();
+    if (!custom_chat_template_) {
+        run_input_.role = "user";
+    }
 
     std::memset(&run_infer_param_, 0, sizeof(run_infer_param_));
     run_infer_param_.mode = RKLLM_INFER_GENERATE;
@@ -129,6 +152,7 @@ void RkllmSession::Shutdown() {
     rkllm_destroy(tmp);
     chunk_fn_ = nullptr;
     chunk_user_data_ = nullptr;
+    custom_chat_template_ = false;
     std::memset(&run_input_, 0, sizeof(run_input_));
     std::memset(&run_infer_param_, 0, sizeof(run_infer_param_));
     LogDebug("LLM_DBG RkllmSession::Shutdown done");

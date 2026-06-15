@@ -34,12 +34,14 @@ LlmWorker::~LlmWorker() {
     Shutdown();
 }
 
-// 写入模型参数；若上次初始化失败，允许状态回到可重试。
-void LlmWorker::Configure(const std::string& model_path, int max_new_tokens, int max_context_len) {
+// 写入模型参数与 system_prompt；若上次初始化失败，允许状态回到可重试。
+void LlmWorker::Configure(const std::string& model_path, int max_new_tokens, int max_context_len,
+                          const std::string& system_prompt) {
     std::lock_guard<std::mutex> lock(mutex_);
     model_path_ = model_path;
     max_new_tokens_ = max_new_tokens;
     max_context_len_ = max_context_len;
+    system_prompt_ = system_prompt;
     configured_ = true;
     if (init_state_ == InitState::Failed) {
         init_state_ = InitState::Uninitialized;
@@ -67,6 +69,7 @@ bool LlmWorker::EnsureInitialized() {
 // 请求异步初始化（幂等）：未配置/已 ready/正在 init/已失败时均直接返回；缺文件不调 rkllm_init。
 void LlmWorker::RequestInitializeAsync() {
     std::string path;
+    std::string system_prompt;
     int max_new = 0;
     int max_ctx = 0;
     {
@@ -82,6 +85,7 @@ void LlmWorker::RequestInitializeAsync() {
             return;
         }
         path = model_path_;
+        system_prompt = system_prompt_;
         max_new = max_new_tokens_;
         max_ctx = max_context_len_;
     }
@@ -108,8 +112,9 @@ void LlmWorker::RequestInitializeAsync() {
 
     LogInfo("LlmWorker: async InitOnce start %s ...", path.c_str());
     LogSystem("正在加载模型，请稍候...");
-    init_future_ = std::async(std::launch::async, [this, path, max_new, max_ctx]() {
-        return session_.Init(path, max_new, max_ctx, &LlmWorker::ChunkTrampoline, this);
+    init_future_ = std::async(std::launch::async, [this, path, system_prompt, max_new, max_ctx]() {
+        return session_.Init(path, max_new, max_ctx, system_prompt, &LlmWorker::ChunkTrampoline,
+                             this);
     });
 }
 

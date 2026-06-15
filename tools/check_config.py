@@ -27,6 +27,7 @@ REQUIRED_KEYS: list[tuple[str, str]] = [
     ("model.llm.path", "str"),
     ("model.llm.max_new_tokens", "int"),
     ("model.llm.max_context_len", "int"),
+    ("model.llm.system_prompt", "str"),
     ("model.llm.preload_on_startup", "bool"),
     ("model.llm.preload_on_scrfd", "bool"),
     ("model.llm.face_stable_frames", "int"),

@@ -4,7 +4,7 @@ Language: **中文** | [English](llm-model-coordinator.md)
 
 ## 读者须知
 
-- 本文说明 RKLLM（DeepSeek 等 `.rkllm`）在 runtime 中的目录、与视觉流水线的边界、人脸门控与会话状态机，以及麦克风/按键扩展方式。
+- 本文说明 RKLLM（Qwen2.5 等 `.rkllm`）在 runtime 中的目录、与视觉流水线的边界、人脸门控与会话状态机，以及麦克风/按键扩展方式。
 - LLM 为**逻辑层能力**：**不**实现 `IModelAdapter`，**不**进入 `RunEnabledSlots` / 每帧 `Preprocess→Inference→Postprocess`。
 - TTS 为并列旁路：LLM chunk 经 `OnLlmChunk` 投递事件，主线程 `PollDeferred` → Ingress/Planner → `EnqueueFormalAnswer`（详见 TTS 主文档）。
 - 实现以当前代码为准；§4 为产品行为定稿，§7 为未完成项。
@@ -239,7 +239,7 @@ LlmPromptSource: FaceAppear | FaceReenter | Microphone | Button | Command
 model:
   llm:
     enabled: true
-    path: ./model/deepseek-1.5b-w8a8-rk3588.rkllm
+    path: ./model/qwen2.5-1.5b_W8A8_RK3588.rkllm
     max_new_tokens: 4096      # 与 max_context_len 同值可避免长答截断
     max_context_len: 4096
     preload_on_startup: true

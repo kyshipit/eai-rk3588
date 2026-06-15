@@ -33,8 +33,9 @@ public:
     LlmWorker();
     ~LlmWorker();
 
-    // 写入模型路径与生成参数；不触发立即初始化。
-    void Configure(const std::string& model_path, int max_new_tokens, int max_context_len);
+    // 写入模型路径、生成参数与 system_prompt；不触发立即初始化。
+    void Configure(const std::string& model_path, int max_new_tokens, int max_context_len,
+                   const std::string& system_prompt);
     // 快速确保初始化（内部可触发异步初始化请求）。
     bool EnsureInitialized();
     // 显式请求异步初始化（幂等）。
@@ -107,6 +108,7 @@ private:
     BannerCallback banner_cb_;
     mutable std::mutex mutex_;
     std::string model_path_;
+    std::string system_prompt_;
     int max_new_tokens_ = 0;
     int max_context_len_ = 0;
     bool configured_ = false;

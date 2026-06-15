@@ -4,7 +4,7 @@ Language: **English** | [中文](llm-model-coordinator_CN.md)
 
 ## For readers
 
-- This doc covers RKLLM (DeepSeek and other `.rkllm` models) layout in runtime, boundary vs the vision pipeline, face gate and session FSM, and mic/button extension.
+- This doc covers RKLLM (Qwen2.5 and other `.rkllm` models) layout in runtime, boundary vs the vision pipeline, face gate and session FSM, and mic/button extension.
 - LLM is a **logic-layer** capability: **no** `IModelAdapter`, **not** in `RunEnabledSlots` / per-frame `Preprocess→Inference→Postprocess`.
 - TTS is a parallel side path: LLM chunks via `OnLlmChunk` → main-thread `PollDeferred` → Ingress/Planner → `EnqueueFormalAnswer` (see TTS doc).
 - Behavior matches current code; §4 is product spec; §7 is backlog.
@@ -241,7 +241,7 @@ See [`config/default.yaml`](../runtime/config/default.yaml):
 model:
   llm:
     enabled: true
-    path: ./model/deepseek-1.5b-w8a8-rk3588.rkllm
+    path: ./model/qwen2.5-1.5b_W8A8_RK3588.rkllm
     max_new_tokens: 4096
     max_context_len: 4096
     preload_on_startup: true

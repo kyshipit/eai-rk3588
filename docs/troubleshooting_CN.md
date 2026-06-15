@@ -130,7 +130,7 @@ model.scrfd.path: ./model/scrfd.rknn
 
 ### LLM 回答截断
 
-- 查 `max_new_tokens`；R1 类模型 thinking 段占 token → [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md)。
+- 查 `max_new_tokens` 与 `max_context_len`，长回答可能被截断 → [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md)。
 
 ### TTS 相关问题
 
