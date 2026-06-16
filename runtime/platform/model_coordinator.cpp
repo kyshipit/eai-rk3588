@@ -86,10 +86,16 @@ void ModelCoordinator::SetSceneDwellFrames(int frames) {
     scene_dwell_frames_ = frames > 0 ? frames : 1;
 }
 
-// 设置 TTS 播报低水位保护时是否允许临时视觉降载。
+// 设置 TTS 播报活跃期是否对 YOLO 做降帧（不关槽、不扰动场景机）。
 void ModelCoordinator::SetTtsVisualThrottleEnabled(bool enabled) {
     std::lock_guard<std::mutex> lock(mutex_);
     tts_visual_throttle_enabled_ = enabled;
+}
+
+// 设置 TTS 降载期 YOLO 推理步长，1 表示每帧仍跑，3 表示约 1/3 帧率。
+void ModelCoordinator::SetYoloInferStride(int stride) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    yolo_infer_stride_ = stride > 0 ? stride : 1;
 }
 
 // 预热槽位：触发一次 Enable 初始化后立即转入 warm 池。
@@ -245,11 +251,23 @@ bool ModelCoordinator::ShouldSuppressYoloPersonDraw() const {
     return enabled_slots_.count("yolo") > 0 && enabled_slots_.count("scrfd") > 0;
 }
 
-// 人脸对话 TTS 活跃时只跳过 yolo 推理，不关闭槽位，避免扰动 scene/门控状态机。
-bool ModelCoordinator::ShouldSkipYoloForDialogueTts() const {
+// 本帧是否跑该槽推理；TTS 活跃时对 yolo 按 stride 降帧，scrfd 与其它槽始终每帧。
+bool ModelCoordinator::ShouldRunSlotInference(const std::string& slot, int frame_id) const {
+    if (slot != "yolo") {
+        return true;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
-    return tts_visual_throttle_enabled_ && applied_scene_ == CoordinatorScene::Person &&
-           enabled_slots_.count("scrfd") > 0 && llm_greeting_.ShouldThrottleVisionForTts();
+    if (!tts_visual_throttle_enabled_ ||
+        applied_scene_ != CoordinatorScene::Person ||
+        enabled_slots_.count("scrfd") == 0 ||
+        !llm_greeting_.ShouldThrottleVisionForTts()) {
+        return true;
+    }
+    const int stride = yolo_infer_stride_ > 0 ? yolo_infer_stride_ : 1;
+    if (stride <= 1) {
+        return true;
+    }
+    return frame_id >= 0 && (frame_id % stride) == 0;
 }
 
 // 场景枚举转文本。
@@ -391,16 +409,18 @@ void ModelCoordinator::UpdateAfterFrame(const AdapterSignals& signals, const cv:
                     scene_dwell_frames_);
             last_logged_scene_ = scene_str;
         }
-        const bool skip_yolo = tts_visual_throttle_enabled_ &&
-                               applied_scene_ == CoordinatorScene::Person &&
-                               enabled_slots_.count("scrfd") > 0 &&
-                               llm_greeting_.ShouldThrottleVisionForTts();
-        if (skip_yolo != last_tts_throttle_) {
-            LogInfo("ModelCoordinator: tts yolo-skip %s (yolo=%d scrfd=%d)",
-                    skip_yolo ? "on" : "off",
+        const bool throttle_yolo = tts_visual_throttle_enabled_ &&
+                                   applied_scene_ == CoordinatorScene::Person &&
+                                   enabled_slots_.count("scrfd") > 0 &&
+                                   llm_greeting_.ShouldThrottleVisionForTts() &&
+                                   yolo_infer_stride_ > 1;
+        if (throttle_yolo != last_tts_throttle_) {
+            LogInfo("ModelCoordinator: tts yolo-throttle %s stride=%d (yolo=%d scrfd=%d)",
+                    throttle_yolo ? "on" : "off",
+                    yolo_infer_stride_,
                     plan.want_yolo ? 1 : 0,
                     plan.want_scrfd ? 1 : 0);
-            last_tts_throttle_ = skip_yolo;
+            last_tts_throttle_ = throttle_yolo;
         }
     }
 

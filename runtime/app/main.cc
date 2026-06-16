@@ -20,10 +20,13 @@
 #include "adapters/yolo/yolo_adapter.h"
 #include "adapters/scrfd/scrfd_adapter.h"
 #include "adapters/llm/llm_worker.h"
-#include "adapters/tts/melotts_session.h"
-#include "adapters/tts/tts_planner.h"
-#include "adapters/tts/tts_worker.h"
+#include "adapters/melotts/melotts_session.h"
+#include "voice/tts_planner.h"
+#include "voice/tts_worker.h"
+#include "voice/voice_reply_bridge.h"
 #include "app/config_parser.h"
+#include "app/console_ui/console_ui.h"
+#include "app/reference_vision_loop.h"
 
 #include <signal.h>
 #include <execinfo.h>
@@ -161,7 +164,7 @@ int main(int argc, char** argv) {
     bool llm_tts_visual_throttle = cfg.GetBool("model.tts.qos.enable_visual_throttle", true);
     int llm_tts_low_watermark_chunks = cfg.GetInt("model.tts.qos.low_watermark_chunks", 1);
     int llm_tts_high_watermark_chunks = cfg.GetInt("model.tts.qos.high_watermark_chunks", 3);
-    int llm_tts_min_start_chunks = cfg.GetInt("model.tts.qos.min_start_pcm_chunks", 2);
+    int llm_tts_yolo_stride = cfg.GetInt("model.tts.qos.yolo_infer_stride", 3);
 
     std::shared_ptr<IModelAdapter> base_adapter;
     if (model_type == "yolo") {
@@ -185,9 +188,11 @@ int main(int argc, char** argv) {
         coordinator.SetSlotOptions(yolo_always_on);
         coordinator.SetSceneDwellFrames(scene_dwell_frames);
         coordinator.SetTtsVisualThrottleEnabled(llm_tts_visual_throttle);
+        coordinator.SetYoloInferStride(llm_tts_yolo_stride);
 
         std::shared_ptr<LlmWorker> llm_worker;
         std::shared_ptr<TtsWorker> tts_worker;
+        VoiceReplyBridge voice_bridge;
         coordinator.GetLlmGreeting().SetTriggerThreshold(llm_face_stable_frames);
         coordinator.GetLlmGreeting().SetFaceAbsentThreshold(llm_face_absent_frames);
         coordinator.GetLlmGreeting().SetGraceTimeoutMs(llm_grace_timeout_ms);
@@ -219,8 +224,9 @@ int main(int argc, char** argv) {
                 tts_worker->SetPlaybackProtectionThresholds(
                     static_cast<size_t>(llm_tts_low_watermark_chunks),
                     static_cast<size_t>(llm_tts_high_watermark_chunks));
-                tts_worker->SetMinStartPcmChunks(static_cast<size_t>(llm_tts_min_start_chunks));
-                llm_worker->SetTtsWorker(tts_worker.get());
+                voice_bridge.SetTtsWorker(tts_worker.get());
+                voice_bridge.SetEnabled(true);
+                llm_worker->SetVoiceReplyBridge(&voice_bridge);
                 TtsPlannerConfig planner_cfg;
                 planner_cfg.zh_min_chars = static_cast<size_t>(std::max(1, llm_tts_planner_zh_min));
                 planner_cfg.zh_max_chars = static_cast<size_t>(std::max(1, llm_tts_planner_zh_max));
@@ -229,9 +235,8 @@ int main(int argc, char** argv) {
                 planner_cfg.fallback_timeout_ms = std::max(100, llm_tts_planner_fallback_ms);
                 planner_cfg.short_answer_max_chars =
                     static_cast<size_t>(std::max(1, llm_tts_planner_short_max));
-                llm_worker->ConfigureTtsPlanner(planner_cfg);
-                llm_worker->SetTtsEnabled(true);
-                coordinator.GetLlmGreeting().SetTtsWorker(tts_worker.get(),
+                voice_bridge.ConfigurePlanner(planner_cfg);
+                coordinator.GetLlmGreeting().SetVoiceOutput(tts_worker.get(),
                                                           llm_tts_skip_greeting);
                 if (llm_tts_preload) {
                     tts_worker->RequestInitializeAsync();
@@ -246,6 +251,12 @@ int main(int argc, char** argv) {
         }
 
         CameraSource camera(input_source, input_width, input_height);
+        if (!camera.Open()) {
+            LogError("Main: failed to open input source '%s'", input_source.c_str());
+            std::cerr << "Failed to open input: " << input_source << std::endl;
+            return -1;
+        }
+
         FrameTransform frame_transform(input_rotate);
         ResultOverlay overlay;
         DisplayWindowConfig display_cfg;
@@ -258,8 +269,15 @@ int main(int argc, char** argv) {
         display_cfg.title_bar_reserve_px = display_title_reserve;
         std::unique_ptr<IDisplaySink> display = CreateOpenCVDisplaySink(display_cfg);
 
-        Pipeline pipeline(coordinator, camera, frame_transform, overlay, *display,
-                          base_adapter, yolo_model_path, infer_threads, npu_cores, single_thread);
+        if (!coordinator.Init("yolo", base_adapter, yolo_model_path, npu_cores, infer_threads)) {
+            LogError("Main: ModelCoordinator init failed for yolo");
+            return -1;
+        }
+
+        ReferenceVisionLoop vision_loop(coordinator, frame_transform, overlay, *display);
+        vision_loop.Prepare();
+
+        Pipeline pipeline(coordinator, infer_threads, single_thread);
         pipeline.SetExternalStopFlag(&g_stop_requested);
 
         pipeline.RegisterFactory("scrfd",
@@ -271,6 +289,31 @@ int main(int argc, char** argv) {
                                  scrfd_model_path);
         pipeline.SetSwitchDebounceThresholds(switch_present_threshold, switch_absent_threshold);
 
+        pipeline.SetFrameIO(
+            [&camera](cv::Mat& frame) { return camera.ReadFrame(frame, &g_stop_requested); },
+            [&frame_transform](cv::Mat& frame) { frame_transform.Apply(frame); },
+            [&frame_transform](const cv::Mat& frame, int frame_id) {
+                return frame_transform.Validate(frame, frame_id);
+            });
+        pipeline.SetPostTaskHandler([&vision_loop](InferenceTask& task) {
+            return vision_loop.OnInferenceTask(task);
+        });
+
+        ConsoleUi console_ui;
+        console_ui.SetSubmitHandler([&coordinator](const std::string& line) {
+            return coordinator.GetLlmGreeting().SubmitUserPrompt(line);
+        });
+        console_ui.LogAvailability();
+        coordinator.GetLlmGreeting().LogStartupHint();
+        pipeline.SetIdleHandler([&vision_loop, &console_ui]() {
+            if (!vision_loop.PumpIdle([&console_ui]() { console_ui.Poll(); })) {
+                g_stop_requested.store(true);
+            }
+        });
+        pipeline.SetOnStop([&coordinator]() {
+            coordinator.GetLlmGreeting().AbortActiveGeneration();
+        });
+
         LogInfo("Main: warming up scrfd slot...");
         coordinator.WarmupSlot("scrfd");
 
@@ -279,6 +322,8 @@ int main(int argc, char** argv) {
                 llm_enabled ? "on" : "off");
 
         pipeline.Run();
+        vision_loop.Shutdown();
+        camera.Release();
         if (tts_worker) {
             tts_worker->Shutdown();
         }

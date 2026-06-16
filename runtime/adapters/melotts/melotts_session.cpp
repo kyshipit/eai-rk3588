@@ -1,5 +1,5 @@
 /*
- * adapters/tts/melotts_session.cpp
+ * adapters/melotts/melotts_session.cpp
  */
 #include "melotts_session.h"
 
@@ -11,6 +11,7 @@
 #include "melotts_process.h"
 #include "platform/logging.h"
 #include "split.hpp"
+#include "rknn_api.h"
 
 namespace {
 
@@ -109,6 +110,14 @@ bool ShouldForceSplitForDecoderLimit(const std::string& text) {
     return CountEnglishWords(text) > 8 || chars > 48;
 }
 
+// 中文偏长单段易超 PREDICTED_LENGTHS_MAX(512) 帧，须分句避免句尾被截产生突兀静音。
+bool ShouldSplitForOutputFrameLimit(const std::string& text) {
+    if (IsMostlyEnglish(text)) {
+        return false;
+    }
+    return utf8_strlen(text) > 36;
+}
+
 }  // namespace
 
 // 默认空会话。
@@ -151,16 +160,28 @@ bool MeloTtsSession::Init(const MeloTtsConfig& cfg) {
         lexicon_.reset();
         return false;
     }
+    if (!lexicon_->IsLoaded()) {
+        LogWarn("MeloTtsSession: lexicon files unreadable lex=%s tokens=%s",
+                cfg_.lexicon_path.c_str(), cfg_.tokens_path.c_str());
+        lexicon_.reset();
+        return false;
+    }
     if (init_melotts_model(cfg_.encoder_path.c_str(), &ctx_.encoder_context) != 0) {
         LogWarn("MeloTtsSession: encoder init failed %s", cfg_.encoder_path.c_str());
         lexicon_.reset();
         return false;
+    }
+    if (rknn_set_core_mask(ctx_.encoder_context.rknn_ctx, RKNN_NPU_CORE_2) != RKNN_SUCC) {
+        LogWarn("MeloTtsSession: encoder rknn_set_core_mask failed");
     }
     if (init_melotts_model(cfg_.decoder_path.c_str(), &ctx_.decoder_context) != 0) {
         LogWarn("MeloTtsSession: decoder init failed %s", cfg_.decoder_path.c_str());
         release_melotts_model(&ctx_.encoder_context);
         lexicon_.reset();
         return false;
+    }
+    if (rknn_set_core_mask(ctx_.decoder_context.rknn_ctx, RKNN_NPU_CORE_2) != RKNN_SUCC) {
+        LogWarn("MeloTtsSession: decoder rknn_set_core_mask failed");
     }
     ready_ = true;
     LogInfo("MeloTtsSession: ready encoder=%s", cfg_.encoder_path.c_str());
@@ -213,6 +234,9 @@ bool MeloTtsSession::SynthesizeOneSentenceUnlocked(const std::string& sentence, 
         LogWarn("MeloTtsSession: inference failed ret=%d", output_lengths);
         return false;
     }
+    LogDebug("MeloTtsSession: sentence phones=%lld pred_frames=%d text_chars=%zu",
+             static_cast<long long>(phone_len), output_lengths,
+             utf8_strlen(sentence));
     const int actual_size = output_lengths * PREDICTED_BATCH;
     if (actual_size <= 0 || static_cast<size_t>(actual_size) > output_data.size()) {
         return false;
@@ -233,34 +257,50 @@ std::vector<float> MeloTtsSession::SynthesizeText(const std::string& text) {
     return output_wav_data;
 }
 
-// 分句后逐句 RKNN 推理并实时回调 PCM，供播放线程边产边播。
+// 分句后逐句 RKNN 推理并实时回调 PCM；on_chunk 在锁外调用，避免死锁与长时间占锁。
 bool MeloTtsSession::SynthesizeTextStreaming(const std::string& text,
                                              const PcmChunkCallback& on_chunk) {
     if (!on_chunk) {
         return false;
     }
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!ready_ || !lexicon_ || text.empty()) {
-        return false;
-    }
-    const int lang_id = LanguageId(cfg_.language);
-    const int split_min_chars = std::max(4, std::min(24, cfg_.split_min_chars));
-    const int single_shot_max = std::max(0, cfg_.single_shot_max_chars);
-    const size_t text_chars = utf8_strlen(text);
-    const bool force_split = ShouldForceSplitForDecoderLimit(text);
-    if (!force_split && single_shot_max > 0 && static_cast<int>(text_chars) <= single_shot_max) {
-        std::vector<float> chunk_pcm;
-        if (!SynthesizeOneSentenceUnlocked(text, lang_id, chunk_pcm)) {
+
+    std::vector<std::string> sentences;
+    int lang_id = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!ready_ || !lexicon_ || text.empty()) {
             return false;
         }
-        return on_chunk(std::move(chunk_pcm));
+        lang_id = LanguageId(cfg_.language);
+        const int split_min_chars = std::max(4, std::min(24, cfg_.split_min_chars));
+        const int single_shot_max = std::max(0, cfg_.single_shot_max_chars);
+        const size_t text_chars = utf8_strlen(text);
+        const bool force_split =
+            ShouldForceSplitForDecoderLimit(text) || ShouldSplitForOutputFrameLimit(text);
+        if (!force_split && single_shot_max > 0 && static_cast<int>(text_chars) <= single_shot_max) {
+            sentences.push_back(text);
+        } else {
+            sentences = split_sentence(text, split_min_chars, cfg_.language);
+        }
+        LogDebug("MeloTtsSession: synthesize text_chars=%zu sentences=%zu single_shot=%d",
+                 text_chars, sentences.size(),
+                 (!force_split && single_shot_max > 0 &&
+                  static_cast<int>(text_chars) <= single_shot_max)
+                     ? 1
+                     : 0);
     }
-    auto sentences = split_sentence(text, split_min_chars, cfg_.language);
+
     bool emitted = false;
     for (const std::string& sentence : sentences) {
         std::vector<float> chunk_pcm;
-        if (!SynthesizeOneSentenceUnlocked(sentence, lang_id, chunk_pcm)) {
-            continue;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!ready_ || !lexicon_) {
+                return emitted;
+            }
+            if (!SynthesizeOneSentenceUnlocked(sentence, lang_id, chunk_pcm)) {
+                continue;
+            }
         }
         emitted = true;
         if (!on_chunk(std::move(chunk_pcm))) {

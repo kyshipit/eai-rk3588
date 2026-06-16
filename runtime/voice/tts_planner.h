@@ -1,5 +1,5 @@
 /*
- * adapters/tts/tts_planner.h — 正式回答语言感知规划：中文字符数、英文词数、标点优先。
+ * voice/tts_planner.h — 正式回答语言感知规划：中文字符数、英文词数、标点优先。
  */
 #pragma once
 

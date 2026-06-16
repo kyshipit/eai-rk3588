@@ -27,7 +27,7 @@
 
 ![Edge AI Runtime 架构](assets/architecture_cn.svg)
 
-实线：视频帧与推理结果。虚线：YAML 与人体/人脸信号。**LLM、TTS 均为逻辑旁路**（`adapters/llm`、`adapters/tts`），不参与每帧 `Preprocess→Inference→Postprocess`。
+实线：视频帧与推理结果。虚线：YAML 与人体/人脸信号。**LLM、TTS 均为逻辑旁路**（`adapters/llm`、`voice/` + `adapters/melotts`），不参与每帧 `Preprocess→Inference→Postprocess`。
 
 
 | 层       | 目录                                    | 职责                                    |

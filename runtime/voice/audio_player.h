@@ -1,5 +1,5 @@
 /*
- * adapters/tts/audio_player.h — 单实例持续 PCM 播放器（GStreamer 管道常驻）。
+ * voice/audio_player.h — 单实例持续 PCM 播放器（GStreamer 管道常驻）。
  */
 #pragma once
 

@@ -40,14 +40,14 @@ Language: **中文** | [English](adapters.md)
 
 ---
 
-## TTS / MeloTTS（`adapters/tts/`）
+## TTS / MeloTTS（`voice/` + `adapters/melotts/`）
 
 ### 作用
 
 将 **`AI>` 可播正文** 合成为语音（44100Hz）：
 
 - 静态问候（`SetBannerLine` → `PlayText`）
-- `YOU>` 后正式回答（`TtsPlanner` → `EnqueueFormalAnswer`；短答入队 Static，长答 job 内 merge PCM）
+- `YOU>` 后正式回答（`VoiceReplyBridge` → `TtsPlanner` → `EnqueueFormalAnswer`；短答 Static，长答分句流式 PushPcm）
 
 终端可见 thinking；**不进入 TTS**。
 
@@ -55,13 +55,14 @@ Language: **中文** | [English](adapters.md)
 
 | 文件 | 职责 |
 |------|------|
-| `tts_ingress.*` | thinking/tag 过滤；UTF-8 输入整理 |
-| `tts_planner.*` | 流式规划正式回答片段；中/英 emit 阈值 |
-| `tts_worker.*` | Static / FormalAnswer；短答 Static 入队；长答合成前合并；`generation_` 抢占 |
-| `melotts_session.*` | RKNN 合成；`SynthesizeTextStreaming` 句级增量 PCM |
-| `audio_player.*` | 常驻 `gst-launch-1.0` 管道写 float32 PCM |
-| `tts_text_sanitizer.*` | 仅 `max_speak_chars` 截断 |
-| `lexicon.hpp` / `split.hpp` | 词表；英文 OOV 字母回退 |
+| `voice/tts_ingress.*` | thinking/tag 过滤；UTF-8 输入整理 |
+| `voice/tts_planner.*` | 流式规划正式回答片段；中/英 emit 阈值 |
+| `voice/voice_reply_bridge.*` | LLM chunk → Ingress/Planner → TtsWorker |
+| `voice/tts_worker.*` | Static / FormalAnswer；`generation_` 抢占 |
+| `adapters/melotts/melotts_session.*` | RKNN 合成；`SynthesizeTextStreaming` 句级增量 PCM |
+| `voice/audio_player.*` | 常驻 `gst-launch-1.0` 管道写 float32 PCM |
+| `voice/tts_text_sanitizer.*` | `max_speak_chars` 按 UTF-8 字符截断 |
+| `adapters/melotts/lexicon.hpp` / `split.hpp` | 词表；分句 |
 
 ### 模型与配置
 

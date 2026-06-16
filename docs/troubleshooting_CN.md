@@ -132,7 +132,18 @@ model.scrfd.path: ./model/scrfd.rknn
 
 - 查 `max_new_tokens` 与 `max_context_len`，长回答可能被截断 → [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md)。
 
-### TTS 相关问题
+### TTS 首响 ~2s（不是 TtsWorker 没流式）
+
+对照日志若出现 `encoder ~270ms` + `decoder ~1900ms` → **RKNN 静态 decoder 全图**，与 `PushPcmChunk` 是否逐句无关。
+
+1. **模型**：`decoder-ZH_MIX_EN.rknn` 内嵌 `static_shape`，`attn=[1,512,256]`、`y=[1,1,262144]`，`dynamic_shapes:{}`；**不能**靠 `rknn_set_input_shapes` 缩短单次推理（需重导动态 shape 模型）。
+2. **少跑 decoder**：问候/短答走 `single_shot`（≤ `single_shot_max_chars`）；Formal 合并队列里已到达的同代际段再进 Melo（无 120ms 等待）。
+3. **少吞句首**：合成期 `BeginIdleKeepalive`，避免 `primed stream (8820)` 在首包 PCM 前再灌 200ms 静音。
+4. **Planner**：`zh_min_chars` / `fallback_timeout_ms` 只决定「何时开始第一次 2s 合成」，不能替代 decoder 耗时。
+
+详见 [tts-melotts_CN.md](tts-melotts_CN.md) §13。
+
+### TTS 相关问题（听感）
 
 - 语音对话体验与 TTS 排障见 [tts-melotts_CN.md](tts-melotts_CN.md) §13。
 

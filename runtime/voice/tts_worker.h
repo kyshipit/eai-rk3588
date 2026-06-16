@@ -1,5 +1,5 @@
 /*
- * adapters/tts/tts_worker.h — 异步 MeloTTS 播报：文本合成与播放并行流水线。
+ * voice/tts_worker.h — 异步 MeloTTS 播报：文本合成与播放并行流水线。
  */
 #pragma once
 
@@ -15,8 +15,10 @@
 #include <vector>
 
 #include "melotts_session.h"
+#include "voice_output.h"
 
-class TtsWorker {
+// 异步 MeloTTS：合成/播放双线程；实现 IVoiceOutput 供门控层注入。
+class TtsWorker : public IVoiceOutput {
 public:
     // 默认构造；模型在 Configure + RequestInitializeAsync 后才加载。
     TtsWorker();
@@ -28,16 +30,17 @@ public:
     // 异步加载 Lexicon 与 encoder/decoder RKNN（幂等）。
     void RequestInitializeAsync();
     // 主线程轮询 init 结果，成功后启动合成/播放线程。
-    void PollInitState();
+    void PollInitState() override;
 
-    // 将一段文本清洗后追加到待合成队列（FIFO）。
+    // 将一段文本清洗后追加到待合成队列（FIFO）；IVoiceOutput 静态问候入口。
+    void PlayStaticText(const std::string& text) override;
     void PlayText(const std::string& text);
     // 将流式正式回答片段清洗后追加到待合成队列。
     void EnqueueFormalAnswer(const std::string& text);
     // 将流式分块文本清洗后追加到待合成队列（兼容旧接口，等同 EnqueueFormalAnswer）。
     void EnqueueSentence(const std::string& text);
     // 停止播放并清空待播队列。
-    void Cancel();
+    void Cancel() override;
     // 退出 worker 线程并释放 MeloTtsSession。
     void Shutdown();
 
@@ -49,10 +52,7 @@ public:
     int MaxSpeakChars() const;
     // 配置播放保护水位阈值（按 PCM 片段数）；high 应大于 low。
     void SetPlaybackProtectionThresholds(size_t low_chunks, size_t high_chunks);
-    // 配置首段开播前的最小缓冲片段数，减少正式回答中途断粮。
-    void SetMinStartPcmChunks(size_t chunks);
-    // 当前是否处于播报保护窗口（建议上层临时降视觉负载）。
-    bool NeedPlaybackProtection() const;
+    bool NeedPlaybackProtection() const override;
     // 当前是否存在待合成/待播放任务（含合成中）。
     bool IsPlaybackActive() const;
 
@@ -81,8 +81,6 @@ private:
     void EnqueueCleaned(std::string cleaned, TextJobKind kind);
     // 合并同一代际下少量连续文本块，避免过短分句造成过多 RKNN 往返。
     std::string CoalescePendingTextLocked(TextJob first);
-    // 合并连续 FormalAnswer 块至 split_min_chars 量级，单次 Melo 产出多句 PCM。
-    std::string CoalesceFormalAnswerLocked(TextJob first);
     // 将单个 PCM 片段入队；若代际已切换则返回 false 终止后续合成。
     bool PushPcmChunk(uint64_t generation, std::vector<float> pcm,
                       PcmJobKind kind = PcmJobKind::Formal);
@@ -127,7 +125,6 @@ private:
     bool synth_busy_ = false;
     size_t protect_low_chunks_ = 1;
     size_t protect_high_chunks_ = 3;
-    size_t min_start_pcm_chunks_ = 2;
     bool protect_latched_ = false;
     uint64_t stats_generation_ = 0;
     bool stats_started_ = false;

@@ -43,8 +43,10 @@ public:
     // 槽位策略配置。
     void SetSlotOptions(bool yolo_always_on);
     void SetSceneDwellFrames(int frames);
-    // 设置是否启用 TTS 低水位时的视觉降载策略。
+    // 设置是否启用 TTS 活跃期的 YOLO 降帧策略（非关死槽位）。
     void SetTtsVisualThrottleEnabled(bool enabled);
+    // TTS 降载时 YOLO 推理步长：每 stride 帧跑一次（>=1，1 表示每帧）。
+    void SetYoloInferStride(int stride);
 
     // 预热某个槽位并放入 warm 池。
     bool WarmupSlot(const std::string& name);
@@ -53,8 +55,8 @@ public:
     std::vector<std::pair<std::string, std::shared_ptr<IModelAdapter>>> GetEnabledSlotAdapters() const;
     std::string GetEnabledSlotsBadge() const;
     bool ShouldSuppressYoloPersonDraw() const;
-    // 人脸对话 TTS 活跃时跳过 yolo 推理，但不关闭槽位/不扰动场景机。
-    bool ShouldSkipYoloForDialogueTts() const;
+    // 本帧是否应对该槽执行推理（YOLO 在 TTS 降载期按 stride 跳帧，scrfd 不受影响）。
+    bool ShouldRunSlotInference(const std::string& slot, int frame_id) const;
     // 获取会话门控对象。
     LlmGreeting& GetLlmGreeting();
 
@@ -103,6 +105,7 @@ private:
     int num_infer_threads_ = 1;
     bool yolo_always_on_ = true;
     bool tts_visual_throttle_enabled_ = true;
+    int yolo_infer_stride_ = 3;
     CoordinatorScene current_scene_ = CoordinatorScene::Idle;
     CoordinatorScene applied_scene_ = CoordinatorScene::Idle;
     CoordinatorScene pending_scene_ = CoordinatorScene::Idle;

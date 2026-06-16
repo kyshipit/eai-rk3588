@@ -25,7 +25,7 @@ Language: **中文** | [English](architecture-and-runtime.md)
 | 加载中        | `SYS> 对话模型加载中…`                      | `Initializing`           |
 | 待机 → 走近    | Ready 后 `输入通道已就绪…`                   | idle → person → 启用 scrfd |
 | 驻足         | `AI>` 问候 + TTS                       | Active，`SetBannerLine`   |
-| 提问         | `YOU>` → 流式 `AI>`；Planner + 正式 TTS（短答 Static / 长答 merge） | `rkllm_run` + Planner    |
+| 提问         | `YOU>` → 流式 `AI>`；Planner + 正式 TTS（短答 Static / 长答分句流式） | `rkllm_run` + Planner    |
 | 连问 / 离开    | 新 `YOU>` Cancel 旧音；Grace 后拒输入        | 门控 / `prompt_gate`       |
 
 
@@ -37,10 +37,11 @@ Language: **中文** | [English](architecture-and-runtime.md)
 
 ```text
 runtime/
-├── app/          # main、ConfigParser
-├── engine/       # Pipeline、IModelAdapter、队列
+├── app/          # main、ConfigParser、console_ui（参考应用 YOU>）
+├── engine/       # Pipeline、IModelAdapter、队列（纯调度框架）
 ├── platform/     # ModelCoordinator、LlmGreeting
-├── adapters/     # yolo、scrfd、llm、tts
+├── adapters/     # yolo、scrfd、llm、melotts
+├── voice/        # TTS 编排、voice_reply_bridge
 ├── capture/ display/
 ├── config/default.yaml   # 唯一默认配置源（main 不兜底）
 ├── utils/、3rdparty/     # 勿改
@@ -49,11 +50,11 @@ runtime/
 
 | 层       | 目录                                    | 职责                                                                 |
 | ------- | ------------------------------------- | ------------------------------------------------------------------ |
-| 入口      | `runtime/app/`                        | 读 YAML，启动 Pipeline 与 ModelCoordinator                            |
+| 入口      | `runtime/app/`                        | 读 YAML，装配 ConsoleUi / 门控 / Pipeline                             |
 | 采集 / 显示 | `runtime/capture/` `runtime/display/` | 采帧、旋转、画框、OpenCV 预览                                               |
-| 引擎      | `runtime/engine/`                     | Pipeline、队列；Preprocess → Inference → Postprocess；主线程显示与 stdin |
-| 策略      | `runtime/platform/`                   | 视觉槽启停、场景去抖、人脸门控                                                  |
-| 模型      | `runtime/adapters/`                   | 视觉：`IModelAdapter`；LLM/TTS：逻辑旁路                                  |
+| 引擎      | `runtime/engine/`                     | Pipeline、队列；Preprocess → Inference → Postprocess（**不含** stdin/对话业务） |
+| 策略      | `runtime/platform/`                   | 视觉槽启停、场景去抖、YOLO 降帧、人脸门控                                        |
+| 模型      | `runtime/adapters/` `runtime/voice/`  | 视觉：`IModelAdapter`；LLM/Melo；出声编排 |
 
 
 - 视觉：**每帧** `Preprocess → Inference → Postprocess`（`RunEnabledSlots`）。
@@ -135,7 +136,7 @@ sequenceDiagram
 | 1–2 | 加载 yaml；Coordinator + 门控参数                                        |
 | 3–4 | LLM/TTS `Configure`；可选异步 init（**stat 失败 → Failed，不调 rkllm_init**） |
 | 5–6 | Pipeline：摄像头 → `Init(yolo)` → scrfd 预热入 warm 池                    |
-| 7   | `Run()` → `LogStartupHint()` 一条 `SYS>`；退出 `Shutdown`              |
+| 7   | `Run()`；`main` 调 `LogStartupHint()`；退出 `Shutdown`              |
 
 
 `SYS>` 与 Failed/Ready 文案详见 [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) §5。入口：`[app/main.cc](../runtime/app/main.cc)`、`[pipeline.cpp](../runtime/engine/pipeline.cpp)`。
@@ -154,7 +155,7 @@ flowchart LR
     PQ --> Main[ProcessDisplayTask]
     Main --> MC[UpdateAfterFrame]
     Main --> Disp[Display]
-    Main --> Stdin[YOU>]
+    Main --> UI[ConsoleUi YOU>]
 ```
 
 
@@ -164,12 +165,12 @@ flowchart LR
 | ---------------- | ------------------------------------- |
 | `pre_thread_`    | 采帧；队列满则丢帧                             |
 | `infer_threads_` | 当前 enabled 视觉槽三阶段                     |
-| **主线程**          | 画框/badge、显示、`PollTerminalPromptInput` |
+| **主线程**          | 画框/badge、显示；`PumpIdle` → `ConsoleUi`（由 app 注入） |
 
 
 要点：`UpdateAfterFrame` 在绘制前；yolo+scrfd 时抑制 YOLO person 框；每帧末 `PollDeferred()`（LLM/TTS init 与 TTS 事件）。
 
-**退出**：`Stop()` → `AbortActiveGeneration`、释放相机、quit 哨兵 → `tts`/`llm` `Shutdown()`。异常见 [troubleshooting_CN.md](troubleshooting_CN.md)。
+**退出**：`Stop()` → app 注入 `AbortActiveGeneration`、释放相机、quit 哨兵 → `tts`/`llm` `Shutdown()`。异常见 [troubleshooting_CN.md](troubleshooting_CN.md)。
 
 ---
 
@@ -189,8 +190,8 @@ flowchart LR
 | -------------------- | -------------------------------------------------------------------- | ------------------------------------------------------ |
 | **门控 / 问候 / `YOU>`** | `LlmGreeting`：Locked→Arming→Active→Grace；`prompt_gate` 须 `IsReady()` | [llm-model-coordinator_CN.md](llm-model-coordinator_CN.md) |
 | **RKLLM**            | `infer_thread_` + `rkllm_run`；chunk → `PollDeferred`                 | 同上                                                     |
-| **TTS**              | Ingress → Planner → 合成/播放（短答 Static；`Cancel` 后 gst idle prime）；TTS 活跃时 **仅跳 yolo 推理** | [tts-melotts_CN.md](tts-melotts_CN.md)（**验收**）       |
-| **适配器文件**            | `adapters/{yolo,scrfd,llm,tts}/`                                     | [adapters_CN.md](adapters_CN.md)                                   |
+| **TTS**              | Ingress → Planner → 合成/播放；Formal **分句流式 PushPcm**；TTS 活跃时 **YOLO 降帧**（`yolo_infer_stride`） | [tts-melotts_CN.md](tts-melotts_CN.md)（**验收**）       |
+| **适配器文件**            | `adapters/{yolo,scrfd,llm,melotts}/` `voice/` | [adapters_CN.md](adapters_CN.md)                                   |
 
 
 ---
@@ -203,7 +204,7 @@ flowchart LR
 | `model.yolo.path` / `model.scrfd.`*                           | 检测框     |
 | `system.slots.yolo_always_on`、`system.switch.*`               | 场景与去抖   |
 | `model.llm.enabled`、`preload_on_startup`、`auto_greeting_text` | 对话链路与问候 |
-| `model.tts.enabled`、`model.tts.qos.*`、`model.tts.planner.*`   | 语音与开播缓冲 |
+| `model.tts.enabled`、`model.tts.qos.*`（含 `yolo_infer_stride`）、`model.tts.planner.*`   | 语音、YOLO 降帧与开播缓冲 |
 | `input.show_window`                                           | 预览窗     |
 
 

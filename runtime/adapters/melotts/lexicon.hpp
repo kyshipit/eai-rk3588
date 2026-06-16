@@ -5,7 +5,6 @@
 #include <vector>
 #include <fstream>
 #include <unordered_map>
-#include <assert.h>
 #include <sstream>
 #include <algorithm>
 
@@ -23,13 +22,20 @@ inline std::vector<std::string> split(const std::string& s, char delim) {
 class Lexicon {
 private:
     std::unordered_map<std::string, std::pair<std::vector<int>, std::vector<int>>> lexicon;
+    bool loaded_ = false;
 
 public:
+    // 词表是否已成功加载（tokens + lexicon 均可读）。
+    bool IsLoaded() const { return loaded_; }
+
     // 从 lexicon.txt 与 tokens.txt 构建音素/声调查找表。
     Lexicon(const std::string& lexicon_filename, const std::string& tokens_filename) {
+        loaded_ = false;
         std::unordered_map<std::string, int> tokens;
         std::ifstream ifs(tokens_filename);
-        assert(ifs.is_open());
+        if (!ifs.is_open()) {
+            return;
+        }
 
         std::string line;
         while ( std::getline(ifs, line) ) {
@@ -39,7 +45,10 @@ public:
         ifs.close();
 
         ifs.open(lexicon_filename);
-        assert(ifs.is_open());
+        if (!ifs.is_open()) {
+            lexicon.clear();
+            return;
+        }
         while ( std::getline(ifs, line) ) {
             auto splitted_line = split(line, ' ');
             std::string word_or_phrase = splitted_line[0];
@@ -68,6 +77,7 @@ public:
             lexicon[p] = std::make_pair(std::vector<int>{i}, std::vector<int>{tone});
         }
         lexicon[" "] = std::make_pair(std::vector<int>{tokens["_"]}, std::vector<int>{0});
+        loaded_ = true;
     }
 
     // 按 UTF-8 字符切分，英文词在 merge_english 中合并。

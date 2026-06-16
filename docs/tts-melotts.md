@@ -2,7 +2,7 @@ Language: **English** | [中文](tts-melotts_CN.md)
 
 # TTS and voice dialogue design
 
-> **Sole TTS design and acceptance document**. Code: `runtime/adapters/tts/`; config: `runtime/config/default.yaml` → `model.tts` (requires `model.llm.enabled: true` at startup).
+> **Sole TTS design and acceptance document**. Code: `runtime/voice/` + `runtime/adapters/melotts/`; config: `runtime/config/default.yaml` → `model.tts` (requires `model.llm.enabled: true` at startup).
 
 ---
 
@@ -202,7 +202,6 @@ See [`default.yaml`](../runtime/config/default.yaml) → `model.tts`.
 | `single_shot_max_chars` | One decoder if text ≤ this (default 96; ≥ `planner.short_answer_max_chars`) |
 | `planner.short_answer_max_chars` | Defer stream emit; flush on FINISH |
 | `split_min_chars` | Melo internal split for **long** text |
-| `qos.min_start_pcm_chunks` | Default **1** (merged jobs) |
 | `planner.*` | Long-answer stream thresholds |
 
 ---

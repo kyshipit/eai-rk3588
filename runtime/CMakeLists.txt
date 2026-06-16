@@ -27,6 +27,8 @@ set(LIBGOMP ${RKLLM_API_DIR}/lib/libgomp/libgomp.so)
 
 set(RUNTIME_SRC
     app/main.cc
+    app/console_ui/console_ui.cpp
+    app/reference_vision_loop.cpp
     engine/pipeline.cpp
     engine/thread_pool.cpp
     platform/model_coordinator.cpp
@@ -41,14 +43,15 @@ set(RUNTIME_SRC
     adapters/scrfd/scrfd_postprocess.cpp
     adapters/llm/rkllm_session.cpp
     adapters/llm/llm_worker.cpp
-    adapters/tts/melotts_engine.cc
-    adapters/tts/melotts_process.cc
-    adapters/tts/melotts_session.cpp
-    adapters/tts/tts_worker.cpp
-    adapters/tts/audio_player.cpp
-    adapters/tts/tts_text_sanitizer.cpp
-    adapters/tts/tts_ingress.cpp
-    adapters/tts/tts_planner.cpp
+    adapters/melotts/melotts_engine.cc
+    adapters/melotts/melotts_process.cc
+    adapters/melotts/melotts_session.cpp
+    voice/tts_worker.cpp
+    voice/audio_player.cpp
+    voice/tts_text_sanitizer.cpp
+    voice/tts_ingress.cpp
+    voice/tts_planner.cpp
+    voice/voice_reply_bridge.cpp
 )
 
 add_executable(edgeai_app ${RUNTIME_SRC})
@@ -76,7 +79,8 @@ target_include_directories(edgeai_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/yolo
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/scrfd
     ${CMAKE_CURRENT_SOURCE_DIR}/adapters/llm
-    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/tts
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/melotts
+    ${CMAKE_CURRENT_SOURCE_DIR}/voice
     ${CMAKE_CURRENT_SOURCE_DIR}/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/timer
     ${RKLLM_API_DIR}/include

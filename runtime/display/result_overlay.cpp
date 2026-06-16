@@ -3,7 +3,7 @@
  *
  * 检测结果叠加绘制：
  * - DrawModelBadge：左上角模型状态标签。
- * - DrawGreetingBanner：底部会话提示条（目前主链路主要走终端输出）。
+ * - DrawGreetingBanner：底部会话提示条绘制工具；**未接入主链路**（问候走 stdout AI> + TTS）。
  * - Apply：解析标准行文本并绘制框、分数与人脸关键点。
  */
 #include "result_overlay.h"
@@ -55,6 +55,7 @@ void ResultOverlay::DrawModelBadge(cv::Mat& frame, const std::string& model_name
     cv::putText(frame, badge, cv::Point(pad + 4, y0), cv::FONT_HERSHEY_SIMPLEX, scale, color, thick);
 }
 
+// 在预览帧底部绘制问候/会话字幕；保留供后续 UI 接入，当前 ReferenceVisionLoop 不调用。
 void ResultOverlay::DrawGreetingBanner(cv::Mat& frame, const std::string& text) const {
     if (frame.empty() || text.empty()) {
         return;

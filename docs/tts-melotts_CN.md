@@ -2,7 +2,7 @@ Language: **中文** | [English](tts-melotts.md)
 
 # TTS 与语音对话体验设计
 
-> **唯一 TTS 设计与验收文档**。实现代码：`runtime/adapters/tts/`；配置：`runtime/config/default.yaml` → `model.tts`（启动时仍要求 `model.llm.enabled: true`）。
+> **唯一 TTS 设计与验收文档**。实现代码：`runtime/voice/`（编排）+ `runtime/adapters/melotts/`（模型）；配置：`runtime/config/default.yaml` → `model.tts`（启动时仍要求 `model.llm.enabled: true`）。
 
 ---
 
@@ -22,7 +22,7 @@ Language: **中文** | [English](tts-melotts.md)
 - 新 `YOU>` 可打断旧回答（`generation_` 抢占）；
 - 人脸 Grace/Locked 后拒绝新输入。
 
-**设计原则**：优先 **听感连续、句首可辨、整句完整**；不追求「尽快切块播」。Melo decoder 单次约 **1.6–2.2s** 且多句只能串行，需在 Planner / 合成 / 播放三层配合。
+**设计原则**：优先 **听感连续、句首可辨、整句完整**；不追求「尽快切块播」。当前板端 `decoder-ZH_MIX_EN.rknn` 为 **static_shape**（固定 512 帧输出），**每次 `rknn_run` decoder 约 1.8–2.2s**，与文本长短无关；需在 Planner / 合并策略 / 播放层配合，不能靠 TtsWorker 队列技巧单独压到毫秒级。
 
 不播报：`SYS>`、用户输入行、视觉 debug、`<think>` 块；合成前由 `TtsTextSanitizer` 去掉 emoji 等不发音字符。
 
@@ -39,11 +39,11 @@ Language: **中文** | [English](tts-melotts.md)
 | 项 | 标准 |
 |----|------|
 | 静态问候 | 人脸稳定后问候 **文字+语音**；句首清楚（与正式回答对照基准） |
-| 正式回答连续性 | 短答整段连贯；长答 job 内 PCM 合并后一次播放，**无块间吃字** |
+| 正式回答连续性 | 短答整段连贯；长答 **Melo 分句流式 PushPcm**，播放边产边播，句间无明显吃字 |
 | 句首可辨 | 正式回答开头 3–4 字/词 **可听见**（非仅屏幕有字） |
 | 英文 | 禁止 Planner **单词级**切分；短英文整段 single-shot |
 | 门控 | Grace 超时后拒绝新输入 |
-| 视觉 | 无 `mode:none`；TTS 活跃时 **仅跳 yolo inference**，scrfd 保持 |
+| 视觉 | 无 `mode:none`；TTS 活跃时 **YOLO 按 `yolo_infer_stride` 降帧**，scrfd 每帧保持 |
 | 抢占 | 新 `YOU>` → `Cancel()` + `generation_++`，仅播最新代际 |
 | 配置 | `enabled=false` 无 TTS；`skip_static_greeting=true` 不播问候 |
 
@@ -51,8 +51,8 @@ Language: **中文** | [English](tts-melotts.md)
 
 | 项 | 说明 |
 |----|------|
-| 正式回答首响 | LLM FINISH + Melo 串行时间（短答 ~1 decoder ≈2s；长答多 decoder 更晚） |
-| 长答延迟 | 宁可等 job 内合成合并完再播，也不边产边播造成 underrun |
+| 正式回答首响 | **首段 PCM ≈ encoder(~270ms) + decoder(~1900ms)**；静态 RKNN 全图，非 TtsWorker 假流式；Planner 仅影响「何时开始这 2s」 |
+| 长答延迟 | 每句/每 job 一次 decoder 全图；**应合并已到达的 Formal 段**再进 Melo，避免 12 字一段 × 2s |
 | 屏显 vs 耳上 | 终端 `AI>` 流式早于 TTS 首响属正常；**验收以耳朵为准** |
 
 ### 不作为单独 Pass 的指标
@@ -81,7 +81,7 @@ Language: **中文** | [English](tts-melotts.md)
 - **LLM**：`OnLlmChunk` 投递事件 → 主线程 `PollDeferred` → Ingress/Planner → `EnqueueFormalAnswer`。
 - **问候**：`LlmGreeting::SetBannerLine` → **`PlayText`（Static）**，不经 Planner，与短答 Formal 路径对齐。
 - **抢占**：`SubmitPrompt` → **`TtsWorker::Cancel()`**（清队列 + `generation_++`，**不**杀 gst）。
-- **视觉**：TTS 活跃期可跳 yolo inference（`ShouldSkipYoloForDialogueTts()`）。
+- **视觉**：TTS 活跃期 YOLO 降帧（`ShouldRunSlotInference("yolo", frame_id)` + `yolo_infer_stride`），scrfd 不受影响。
 
 ---
 
@@ -174,13 +174,13 @@ Language: **中文** | [English](tts-melotts.md)
 | 场景 | 合成 | 播放 |
 |------|------|------|
 | Static / 短 Formal（≤96 字） | single-shot 或分句；句首 **仅裁绝对静音**（`<5e-5`） | `pcm_queue` 非空即播 |
-| 长 Formal | job 内 `AppendMeloSentencePcm` 合并 → 一次 PushPcm | 同上 |
+| 长 Formal | `SynthesizeTextStreaming` 每句回调即 `PushPcmChunk` | `pcm_queue` 非空即播，边产边播 |
 
 **禁止**（曾导致回退的失败改法）：
 
-- Formal 边产边播多块 PCM（块间 underrun / 吃字）；
 - 合并后整段 RMS/峰值 `TrimLeadingSilence`（误删弱起音整句）；
-- 无上限 aggressive trim / 整篇长答 single-shot 超模型上限。
+- 无上限 aggressive trim / 整篇长答 single-shot 超模型上限；
+- job 内累积全部 PCM 再一次性 Push（阻塞首响，违背 Melo 流式）。
 
 **PCM 句首处理**：`TrimAbsoluteLeadingSilence` 只删近零样本，保留 10ms pad；**不**做弱起音增益（易与 merge trim 叠加出问题）。
 
@@ -216,7 +216,6 @@ TTS 活跃 + 人脸对话 Active/Grace → 跳过 **yolo inference only**；scrf
 | `planner.short_answer_max_chars` | 短答 FINISH 整段，流式不中途 emit |
 | `planner.zh_min/max_chars`、`en_min/max_words` | 长答流式 emit |
 | `planner.fallback_timeout_ms` | 未达 max 时的超时 emit（长答） |
-| `qos.min_start_pcm_chunks` | 现默认 **1**（job 合并后多为 1 块） |
 | `qos.enable_visual_throttle` | 低水位跳 yolo infer |
 
 ---
@@ -225,11 +224,12 @@ TTS 活跃 + 人脸对话 Active/Grace → 跳过 **yolo inference only**；scrf
 
 | 日志 | 含义 |
 |------|------|
-| `first pcm enqueued/played in X ms` | 首条文本 → 首个 PCM（含 Melo 串行时间） |
-| `pcm underrun #N` | 播完队列空且仍在合成；**≠ 听感断粮唯一依据** |
-| `AudioPlayer: primed stream` | 空闲后 priming，保护句首 |
-| 多次 `inference_decoder_model` | 文本超 single-shot 或长答多句；短答应 **1 次** |
-| `predicted_lengths_max_real > PREDICTED_LENGTHS_MAX` | 单次文本过长，**句尾被截** |
+| `inference_encoder_model use: X ms` | 单句 encoder RKNN（通常 ~250–320ms） |
+| `inference_decoder_model use: X ms` | **单句 decoder RKNN 全图**（静态模型通常 ~1.8–2.2s，与文本长短无关） |
+| `MeloTtsSession: sentence phones=… pred_frames=…` | 实际音素长与预测帧数（pred_frames 远小于 512 时仍跑满 decoder 图） |
+| `first pcm enqueued/played in X ms` | 首条文本入队 → 首个 PCM（≈ 上述 encoder+decoder 之和） |
+| `AudioPlayer: cold primed stream (2205 …)` | 仅新 gst 管道冷启动；**不应再出现 8820** |
+| `AudioPlayer: idle keepalive started` | 每轮 TTS 只应出现 **1 次**（keepalive 线程常驻，PlayPcm 仅暂停不写） |
 
 ### 句首听不见 / 只吃后半句
 

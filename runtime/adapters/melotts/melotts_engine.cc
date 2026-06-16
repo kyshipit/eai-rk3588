@@ -134,6 +134,17 @@ int init_melotts_model(const char *model_path, melotts_rknn_context_t *app_ctx)
     app_ctx->output_attrs = (rknn_tensor_attr *)malloc(io_num.n_output * sizeof(rknn_tensor_attr));
     memcpy(app_ctx->output_attrs, output_attrs, io_num.n_output * sizeof(rknn_tensor_attr));
 
+    app_ctx->shape_range = (rknn_input_range *)malloc(io_num.n_input * sizeof(rknn_input_range));
+    memset(app_ctx->shape_range, 0, io_num.n_input * sizeof(rknn_input_range));
+    for (uint32_t i = 0; i < io_num.n_input; ++i) {
+        app_ctx->shape_range[i].index = i;
+        ret = rknn_query(ctx, RKNN_QUERY_INPUT_DYNAMIC_RANGE, &(app_ctx->shape_range[i]),
+                         sizeof(rknn_input_range));
+        if (ret == RKNN_SUCC && app_ctx->shape_range[i].shape_number > 0) {
+            dump_input_dynamic_range(&(app_ctx->shape_range[i]));
+        }
+    }
+
     return 0;
 }
 
@@ -315,7 +326,7 @@ int inference_decoder_model(melotts_rknn_context_t *app_ctx, std::vector<float> 
     inputs[1].buf = (float *)malloc(inputs[1].size);
     memcpy(inputs[1].buf, y_mask.data(), inputs[1].size);
 
-    inputs[2].index = 1;
+    inputs[2].index = 2;
     inputs[2].type = RKNN_TENSOR_FLOAT32;
     inputs[2].size = G_SIZE * sizeof(float);
     inputs[2].buf = (float *)malloc(inputs[2].size);

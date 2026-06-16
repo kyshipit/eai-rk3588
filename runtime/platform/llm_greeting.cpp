@@ -6,7 +6,7 @@
 #include <cstdio>
 
 #include "adapters/llm/llm_worker.h"
-#include "adapters/tts/tts_worker.h"
+#include "voice/voice_output.h"
 #include "logging.h"
 
 namespace {
@@ -59,9 +59,9 @@ void LlmGreeting::SetLlmWorker(LlmWorker* worker) {
     }
 }
 
-// 绑定 TTS；问候 is_final 时可选播报（与 AI> 同源）。
-void LlmGreeting::SetTtsWorker(TtsWorker* tts, bool skip_static_greeting) {
-    tts_ = tts;
+// 绑定出声实现；问候 is_final 时可选播报（与 AI> 同源）。
+void LlmGreeting::SetVoiceOutput(IVoiceOutput* voice, bool skip_static_greeting) {
+    voice_ = voice;
     skip_static_greeting_ = skip_static_greeting;
 }
 
@@ -161,9 +161,9 @@ void LlmGreeting::SetBannerLine(const std::string& line, LlmPromptSource src, bo
             LogDebug("LLM_OUT|src=%s|text=%s", SourceName(ai_stream_src_),
                      EscapeForMachineLog(ai_stream_text_).c_str());
         }
-        if (tts_ && !skip_static_greeting_ && !ai_stream_text_.empty() &&
+        if (voice_ && !skip_static_greeting_ && !ai_stream_text_.empty() &&
             (src == LlmPromptSource::FaceAppear || src == LlmPromptSource::FaceReenter)) {
-            tts_->PlayText(ai_stream_text_);
+            voice_->PlayStaticText(ai_stream_text_);
         }
         ai_stream_text_.clear();
         ai_stream_open_ = false;
@@ -177,18 +177,18 @@ bool LlmGreeting::IsFaceDialogueActive() const {
 
 // 查询 TTS 是否请求视觉降载，限制在有人脸对话窗口内生效。
 bool LlmGreeting::ShouldThrottleVisionForTts() const {
-    if (!tts_ || !IsFaceDialogueActive()) {
+    if (!voice_ || !IsFaceDialogueActive()) {
         return false;
     }
-    return tts_->NeedPlaybackProtection();
+    return voice_->NeedPlaybackProtection();
 }
 
 // Pipeline 停止时中断 RKLLM，避免 Shutdown 卡在 JoinInferThread。
 void LlmGreeting::AbortActiveGeneration() {
     if (worker_) {
         worker_->RequestAbortGeneration();
-    } else if (tts_) {
-        tts_->Cancel();
+    } else if (voice_) {
+        voice_->Cancel();
     }
 }
 
@@ -197,8 +197,8 @@ void LlmGreeting::PollDeferred() {
     if (worker_) {
         worker_->PollDeferred();
     }
-    if (tts_) {
-        tts_->PollInitState();
+    if (voice_) {
+        voice_->PollInitState();
     }
     TryOpenDialogueIfReady();
 }

@@ -82,7 +82,7 @@ python3 tools/check_config.py
 | Vision slots / scenes | `runtime/platform/model_coordinator.cpp` |
 | Face gate / greeting | `runtime/platform/llm_greeting.cpp` |
 | RKLLM | `runtime/adapters/llm/` |
-| TTS | `runtime/adapters/tts/` |
+| TTS | `runtime/voice/` + `runtime/adapters/melotts/` |
 | Default config | `runtime/config/default.yaml` |
 | Dev helpers | `tools/` (`check_config.py`, `check_models.sh`) |
 

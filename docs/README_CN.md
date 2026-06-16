@@ -82,7 +82,7 @@ python3 tools/check_config.py
 | 视觉槽 / 场景 | `runtime/platform/model_coordinator.cpp` |
 | 人脸门控 / 问候 | `runtime/platform/llm_greeting.cpp` |
 | RKLLM | `runtime/adapters/llm/` |
-| TTS | `runtime/adapters/tts/` |
+| TTS | `runtime/voice/` + `runtime/adapters/melotts/` |
 | 默认配置 | `runtime/config/default.yaml` |
 | 开发辅助 | `tools/`（`check_config.py`、`check_models.sh`） |
 

@@ -1,5 +1,5 @@
 /*
- * adapters/tts/tts_worker.cpp
+ * voice/tts_worker.cpp
  */
 #include "tts_worker.h"
 
@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "audio_player.h"
-#include "melotts_process.h"
 #include "melotts_process.h"
 #include "platform/logging.h"
 #include "split.hpp"
@@ -53,16 +52,6 @@ void TrimTrailingSilence(std::vector<float>& pcm) {
     }
     end = std::min(pcm.size(), end + kSilenceKeepPad);
     pcm.resize(end);
-}
-
-// 将 Melo 分句 PCM 拼成一段；每句先裁绝对静音，job 内合并后一次播放，避免块间 underrun。
-void AppendMeloSentencePcm(std::vector<float>& merged, std::vector<float> chunk) {
-    if (chunk.empty()) {
-        return;
-    }
-    TrimAbsoluteLeadingSilence(chunk);
-    merged.insert(merged.end(), std::make_move_iterator(chunk.begin()),
-                  std::make_move_iterator(chunk.end()));
 }
 
 // 短答与问候相同：整段一次 Melo，不走合并/二次句首裁剪。
@@ -221,10 +210,17 @@ void TtsWorker::EnqueueCleaned(std::string cleaned, TextJobKind kind) {
     if (need_init) {
         RequestInitializeAsync();
     }
+    // 合成耗时数秒期间用 keepalive 维持 gst 写入，避免 PlayPcm 前触发 8820 样本 idle priming。
+    AudioPlayer::BeginIdleKeepalive(SAMPLE_RATE);
     cv_.notify_all();
 }
 
-// 将一段文本清洗后追加到待合成队列（问候等整段播报，立即开播）。
+// IVoiceOutput：静态问候入口，转调 PlayText。
+void TtsWorker::PlayStaticText(const std::string& text) {
+    PlayText(text);
+}
+
+// 将一段文本清洗后追加到待合成队列（问候等整段播报）。
 void TtsWorker::PlayText(const std::string& text) {
     EnqueueCleaned(TtsTextSanitizer::Sanitize(text, max_speak_chars_), TextJobKind::Static);
 }
@@ -322,16 +318,13 @@ void TtsWorker::SetPlaybackProtectionThresholds(size_t low_chunks, size_t high_c
     RefreshProtectionLatchUnlocked();
 }
 
-// 配置首次开播前需要积攒的 PCM 片段数，默认 2 段以换取连续性。
-void TtsWorker::SetMinStartPcmChunks(size_t chunks) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    min_start_pcm_chunks_ = std::max<size_t>(1, chunks);
-}
-
-// 查询是否应进入播放保护窗口；最小版本中整轮播报活跃期都保护。
+// 查询是否应进入播放保护窗口：PCM 队列低于 low 水位时锁存，高于 high 时解除。
 bool TtsWorker::NeedPlaybackProtection() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return IsPlaybackActiveUnlocked();
+    if (!IsPlaybackActiveUnlocked()) {
+        return false;
+    }
+    return protect_latched_;
 }
 
 // 查询是否有在途播报（含合成线程执行中）。
@@ -355,7 +348,7 @@ bool TtsWorker::IsFormalPipelinePendingUnlocked() const {
     return synth_busy_ || !text_queue_.empty();
 }
 
-// 锁内刷新保护锁存：仅保留水位日志语义，保护窗口由整轮活跃期决定。
+// 锁内刷新保护锁存：PCM 深度低于 low 进入保护，高于 high 解除。
 void TtsWorker::RefreshProtectionLatchUnlocked() {
     if (!IsPlaybackActiveUnlocked()) {
         FinalizeGenerationStatsUnlocked();
@@ -371,7 +364,9 @@ void TtsWorker::RefreshProtectionLatchUnlocked() {
         protect_latched_ = true;
         return;
     }
-    protect_latched_ = depth <= protect_low_chunks_;
+    if (depth >= protect_high_chunks_) {
+        protect_latched_ = false;
+    }
 }
 
 // 等待后台线程结束。
@@ -398,25 +393,6 @@ std::string TtsWorker::CoalescePendingTextLocked(TextJob first) {
             break;
         }
         merged += text_queue_.front().text;
-        text_queue_.pop_front();
-    }
-    return merged;
-}
-
-// 合并连续 FormalAnswer 至约 split_min_chars*8 字节，一次 decoder 批次产出多句 PCM。
-std::string TtsWorker::CoalesceFormalAnswerLocked(TextJob first) {
-    const int split_min = std::max(4, cfg_.split_min_chars);
-    const size_t max_bytes = static_cast<size_t>(split_min * 8);
-    std::string merged = std::move(first.text);
-    while (!text_queue_.empty()) {
-        const TextJob& next = text_queue_.front();
-        if (next.generation != first.generation || next.kind != TextJobKind::FormalAnswer) {
-            break;
-        }
-        if (merged.size() + next.text.size() > max_bytes) {
-            break;
-        }
-        merged += next.text;
         text_queue_.pop_front();
     }
     return merged;
@@ -452,7 +428,7 @@ bool TtsWorker::PushPcmChunk(uint64_t generation, std::vector<float> pcm, PcmJob
     return true;
 }
 
-// 合成线程：FIFO 取文本并产出 PCM；FormalAnswer 先合并再推理以减少 decoder 往返。
+// 合成线程：Planner 每段独立进队；Formal 不经合并/等待，Melo 内部分句后逐句 PushPcm。
 void TtsWorker::SynthesizeLoop() {
     while (true) {
         TextJob job;
@@ -464,34 +440,31 @@ void TtsWorker::SynthesizeLoop() {
             if (stop_) {
                 break;
             }
+            // Formal：极短等待同批后续段入队（无阻塞合成），再合并为一次 Melo job。
+            if (!text_queue_.empty() && text_queue_.front().kind == TextJobKind::FormalAnswer) {
+                cv_.wait_for(lock, std::chrono::milliseconds(80), [this]() {
+                    return stop_ || text_queue_.size() > 1;
+                });
+            }
             job = std::move(text_queue_.front());
             text_queue_.pop_front();
             if (job.kind == TextJobKind::FormalAnswer) {
-                const size_t min_batch =
-                    static_cast<size_t>(std::max(24, cfg_.split_min_chars * 3));
-                job.text = CoalesceFormalAnswerLocked(std::move(job));
-                for (int attempt = 0; attempt < 2 && job.text.size() < min_batch && !stop_;
-                     ++attempt) {
-                    const bool got_more = cv_.wait_for(
-                        lock, std::chrono::milliseconds(120), [this, &job]() {
-                            if (stop_) {
-                                return true;
-                            }
-                            if (text_queue_.empty()) {
-                                return false;
-                            }
-                            const TextJob& next = text_queue_.front();
-                            return next.generation == job.generation &&
-                                   next.kind == TextJobKind::FormalAnswer;
-                        });
-                    if (!got_more) {
+                // 无阻塞合并：把队列里已到达的同代际 Formal 段拼成一次 Melo，减少静态 decoder 全图次数。
+                const size_t max_merge_chars =
+                    static_cast<size_t>(std::max(24, cfg_.single_shot_max_chars > 0
+                                                             ? cfg_.single_shot_max_chars
+                                                             : 96));
+                while (!text_queue_.empty()) {
+                    const TextJob& next = text_queue_.front();
+                    if (next.generation != job.generation ||
+                        next.kind != TextJobKind::FormalAnswer) {
                         break;
                     }
-                    TextJob batch;
-                    batch.kind = TextJobKind::FormalAnswer;
-                    batch.generation = job.generation;
-                    batch.text = std::move(job.text);
-                    job.text = CoalesceFormalAnswerLocked(std::move(batch));
+                    if (utf8_strlen(job.text) + utf8_strlen(next.text) > max_merge_chars) {
+                        break;
+                    }
+                    job.text += next.text;
+                    text_queue_.pop_front();
                 }
             } else {
                 job.text = CoalescePendingTextLocked(std::move(job));
@@ -509,17 +482,14 @@ void TtsWorker::SynthesizeLoop() {
         const TextJobKind job_kind = job.kind;
         bool pushed = false;
         if (job_kind == TextJobKind::FormalAnswer) {
-            // 长答：Melo 多分句时 job 内合并 PCM，一次 PlayPcm，避免块间断粮。
-            std::vector<float> merged_pcm;
-            const bool emitted = session_.SynthesizeTextStreaming(
-                job.text, [&merged_pcm](std::vector<float>&& pcm_chunk) {
-                    AppendMeloSentencePcm(merged_pcm, std::move(pcm_chunk));
-                    return true;
+            // Melo split_sentence 每句 RKNN 完成后立即 PushPcm；首响仍受单句 encoder+decoder 时延约束。
+            pushed = session_.SynthesizeTextStreaming(
+                job.text, [this, job_generation](std::vector<float>&& pcm_chunk) {
+                    if (!pcm_chunk.empty()) {
+                        TrimAbsoluteLeadingSilence(pcm_chunk);
+                    }
+                    return PushPcmChunk(job_generation, std::move(pcm_chunk), PcmJobKind::Formal);
                 });
-            if (emitted && !merged_pcm.empty()) {
-                TrimTrailingSilence(merged_pcm);
-                pushed = PushPcmChunk(job_generation, std::move(merged_pcm), PcmJobKind::Formal);
-            }
         } else {
             pushed = session_.SynthesizeTextStreaming(
                 job.text, [this, job_generation](std::vector<float>&& pcm_chunk) {

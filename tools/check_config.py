@@ -58,7 +58,6 @@ REQUIRED_KEYS: list[tuple[str, str]] = [
     ("model.tts.qos.enable_visual_throttle", "bool"),
     ("model.tts.qos.low_watermark_chunks", "int"),
     ("model.tts.qos.high_watermark_chunks", "int"),
-    ("model.tts.qos.min_start_pcm_chunks", "int"),
     ("system.log_level", "str"),
     ("system.infer_threads", "int"),
     ("system.npu_cores", "int_array"),

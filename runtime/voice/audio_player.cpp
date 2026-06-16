@@ -1,5 +1,5 @@
 /*
- * adapters/tts/audio_player.cpp
+ * voice/audio_player.cpp
  */
 #include "audio_player.h"
 
@@ -21,10 +21,7 @@
 namespace {
 constexpr int kChannels = 1;
 constexpr size_t kColdPrimeSamples = 2205;
-// idle 后 priming 加长到 ~200ms，作为 keepalive 未覆盖时的兜底。
-constexpr size_t kIdlePrimeSamples = 8820;
-constexpr int kIdlePrimeThresholdMs = 300;
-constexpr int kKeepaliveIntervalMs = 200;
+constexpr int kKeepaliveIntervalMs = 100;
 constexpr size_t kKeepaliveChunkSamples = 1764;
 constexpr int kKeepaliveMaxMs = 120000;
 std::atomic<pid_t> g_play_pid(0);
@@ -32,9 +29,9 @@ std::atomic<int> g_write_fd(-1);
 std::atomic<int> g_sample_rate(0);
 std::atomic<bool> g_stream_needs_cold_prime(false);
 std::atomic<bool> g_have_written_pcm(false);
-std::mutex g_pipe_mutex;
-std::chrono::steady_clock::time_point g_last_pcm_write_tp = std::chrono::steady_clock::now();
 std::atomic<bool> g_keepalive_stop{true};
+std::atomic<bool> g_keepalive_paused{false};
+std::mutex g_pipe_mutex;
 std::thread g_keepalive_thread;
 
 // 关闭全局写端 fd（若存在）。
@@ -75,7 +72,6 @@ bool StartStreamProcessLocked(int sample_rate) {
         dup2(fds[0], STDIN_FILENO);
         close(fds[0]);
         close(fds[1]);
-        // 静默播放器子进程输出，避免终端闪烁进度行影响输入体验。
         const int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0) {
             dup2(devnull, STDOUT_FILENO);
@@ -93,7 +89,7 @@ bool StartStreamProcessLocked(int sample_rate) {
                "!",
                "queue",
                "!",
-                raw_caps.c_str(),
+               raw_caps.c_str(),
                "!",
                "audioconvert",
                "!",
@@ -151,45 +147,27 @@ bool WriteAllLocked(const void* data, size_t size) {
     return true;
 }
 
-// 管道冷启动或长时间无写入后，先灌一段可丢弃静音，避免真实句首被 gst 吃掉。
-bool PrimeStreamIfNeededLocked() {
-    size_t prime_samples = 0;
-    if (g_stream_needs_cold_prime.load()) {
-        prime_samples = kColdPrimeSamples;
-        g_stream_needs_cold_prime.store(false);
-    } else if (g_have_written_pcm.load()) {
-        const auto idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::steady_clock::now() - g_last_pcm_write_tp)
-                                 .count();
-        if (idle_ms >= kIdlePrimeThresholdMs) {
-            prime_samples = kIdlePrimeSamples;
-        }
-    }
-    if (prime_samples == 0) {
+// 仅在新 gst 管道冷启动时灌短静音；已禁用 8820 idle priming（段间可闻停顿）。
+bool PrimeColdStartIfNeededLocked() {
+    if (!g_stream_needs_cold_prime.load()) {
         return true;
     }
-    const std::vector<float> prime(prime_samples, 0.0f);
+    g_stream_needs_cold_prime.store(false);
+    const std::vector<float> prime(kColdPrimeSamples, 0.0f);
     if (!WriteAllLocked(prime.data(), prime.size() * sizeof(float))) {
         return false;
     }
-    LogInfo("AudioPlayer: primed stream (%zu samples idle=%d)",
-            prime_samples, g_have_written_pcm.load() ? 1 : 0);
+    LogInfo("AudioPlayer: cold primed stream (%zu samples)", kColdPrimeSamples);
     return true;
 }
 
-// 记录一次真实 PCM 写入完成时刻，供 idle priming 判定。
-void MarkPcmWriteDoneLocked() {
-    g_have_written_pcm.store(true);
-    g_last_pcm_write_tp = std::chrono::steady_clock::now();
-}
-
-// Cancel 后 LLM 空档：周期性写入微量静音，使距上次写入不超过 idle 阈值。
+// 合成/播放空档：周期性微量静音维持管道，不触发长段 priming。
 void IdleKeepaliveLoop(int sample_rate) {
     const auto started = std::chrono::steady_clock::now();
     while (!g_keepalive_stop.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(kKeepaliveIntervalMs));
-        if (g_keepalive_stop.load()) {
-            break;
+        if (g_keepalive_stop.load() || g_keepalive_paused.load()) {
+            continue;
         }
         const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::steady_clock::now() - started)
@@ -199,19 +177,17 @@ void IdleKeepaliveLoop(int sample_rate) {
             break;
         }
         std::lock_guard<std::mutex> lock(g_pipe_mutex);
-        if (g_keepalive_stop.load()) {
-            break;
+        if (g_keepalive_stop.load() || g_keepalive_paused.load()) {
+            continue;
         }
         if (!EnsureStreamProcessLocked(sample_rate)) {
             continue;
         }
-        if (!PrimeStreamIfNeededLocked()) {
+        if (!PrimeColdStartIfNeededLocked()) {
             continue;
         }
         const std::vector<float> pad(kKeepaliveChunkSamples, 0.0f);
-        if (WriteAllLocked(pad.data(), pad.size() * sizeof(float))) {
-            MarkPcmWriteDoneLocked();
-        }
+        WriteAllLocked(pad.data(), pad.size() * sizeof(float));
     }
 }
 }  // namespace
@@ -230,37 +206,44 @@ void AudioPlayer::Stop() {
     g_have_written_pcm.store(false);
 }
 
-// Cancel 后启动 keepalive，避免 gst 长时间无写入触发 idle priming 吞句首。
+// 合成空档维持 gst 写入；已在跑则不再重启线程。
 void AudioPlayer::BeginIdleKeepalive(int sample_rate) {
     if (sample_rate <= 0) {
         return;
     }
+    if (g_keepalive_thread.joinable() && !g_keepalive_stop.load()) {
+        return;
+    }
     EndIdleKeepalive();
     g_keepalive_stop.store(false);
+    g_keepalive_paused.store(false);
     g_keepalive_thread = std::thread(IdleKeepaliveLoop, sample_rate);
     LogInfo("AudioPlayer: idle keepalive started (interval=%dms)", kKeepaliveIntervalMs);
 }
 
-// 真实 PCM 写入前结束 keepalive。
+// 停止 keepalive 线程（Cancel/Shutdown）。
 void AudioPlayer::EndIdleKeepalive() {
     g_keepalive_stop.store(true);
+    g_keepalive_paused.store(false);
     if (g_keepalive_thread.joinable()) {
         g_keepalive_thread.join();
     }
 }
 
-// 将本段 float PCM 追加写入常驻管道，由单实例播放器连续输出。
+// 将本段 float PCM 写入管道；暂停 keepalive 写同一 fd，避免 join 空窗与段间长静音。
 bool AudioPlayer::PlayPcm(const std::vector<float>& pcm, int sample_rate) {
     if (pcm.empty() || sample_rate <= 0) {
         return false;
     }
-    EndIdleKeepalive();
+    g_keepalive_paused.store(true);
     std::lock_guard<std::mutex> lock(g_pipe_mutex);
     if (!EnsureStreamProcessLocked(sample_rate)) {
+        g_keepalive_paused.store(false);
         LogWarn("AudioPlayer: ensure stream process failed");
         return false;
     }
-    if (!PrimeStreamIfNeededLocked()) {
+    if (!PrimeColdStartIfNeededLocked()) {
+        g_keepalive_paused.store(false);
         LogWarn("AudioPlayer: stream prime failed, restart once");
         const pid_t pid = g_play_pid.exchange(0);
         if (pid > 1) {
@@ -268,13 +251,14 @@ bool AudioPlayer::PlayPcm(const std::vector<float>& pcm, int sample_rate) {
             waitpid(pid, nullptr, WNOHANG);
         }
         CloseWriteFdLocked();
-        if (!StartStreamProcessLocked(sample_rate) || !PrimeStreamIfNeededLocked()) {
+        if (!StartStreamProcessLocked(sample_rate) || !PrimeColdStartIfNeededLocked()) {
             return false;
         }
     }
     const size_t bytes = pcm.size() * sizeof(float);
     if (WriteAllLocked(pcm.data(), bytes)) {
-        MarkPcmWriteDoneLocked();
+        g_have_written_pcm.store(true);
+        g_keepalive_paused.store(false);
         return true;
     }
     LogWarn("AudioPlayer: write pipe failed, restart stream once");
@@ -284,12 +268,15 @@ bool AudioPlayer::PlayPcm(const std::vector<float>& pcm, int sample_rate) {
         waitpid(pid, nullptr, WNOHANG);
     }
     CloseWriteFdLocked();
-    if (!StartStreamProcessLocked(sample_rate) || !PrimeStreamIfNeededLocked()) {
+    if (!StartStreamProcessLocked(sample_rate) || !PrimeColdStartIfNeededLocked()) {
+        g_keepalive_paused.store(false);
         return false;
     }
     if (!WriteAllLocked(pcm.data(), bytes)) {
+        g_keepalive_paused.store(false);
         return false;
     }
-    MarkPcmWriteDoneLocked();
+    g_have_written_pcm.store(true);
+    g_keepalive_paused.store(false);
     return true;
 }

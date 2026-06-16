@@ -29,7 +29,7 @@ Terminal: `SYS>` / `YOU>` / `AI>` on stdout; `[INFO]` and similar on stderr. Pre
 
 *Diagram labels are in Chinese; directory paths match this repository.*
 
-Solid lines: video frames and inference results. Dashed lines: YAML and person/face signals. **LLM and TTS are logic side paths** (`adapters/llm`, `adapters/tts`), not part of per-frame Preprocess→Inference→Postprocess.
+Solid lines: video frames and inference results. Dashed lines: YAML and person/face signals. **LLM and TTS are logic side paths** (`adapters/llm`, `voice/` + `adapters/melotts`), not part of per-frame Preprocess→Inference→Postprocess.
 
 
 | Layer             | Directory                             | Role                                                   |

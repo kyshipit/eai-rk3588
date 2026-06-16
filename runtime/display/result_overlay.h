@@ -14,6 +14,6 @@ public:
                bool suppress_yolo_person = false) const;
     // 绘制当前启用模型徽标。
     void DrawModelBadge(cv::Mat& frame, const std::string& model_name) const;
-    // 绘制底部提示条。
+    // 在画面底部绘制会话提示条；**未接入主链路**（问候/AI 文本走终端 AI>，ReferenceVisionLoop 不调用）。
     void DrawGreetingBanner(cv::Mat& frame, const std::string& text) const;
 };

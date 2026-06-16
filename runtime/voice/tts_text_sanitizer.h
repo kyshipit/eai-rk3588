@@ -1,5 +1,5 @@
 /*
- * adapters/tts/tts_text_sanitizer.h — 播报前文本截断（thinking 由 TtsIngress 过滤）。
+ * voice/tts_text_sanitizer.h — 播报前文本截断（thinking 由 TtsIngress 过滤）。
  */
 #pragma once
 

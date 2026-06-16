@@ -40,14 +40,14 @@ Config: `model.llm.*`. Integration: [llm-model-coordinator.md](llm-model-coordin
 
 ---
 
-## TTS / MeloTTS (`adapters/tts/`)
+## TTS / MeloTTS (`voice/` + `adapters/melotts/`)
 
 ### Purpose
 
 Synthesize **speakable `AI>` text** to audio (44100 Hz):
 
 - Static greeting (`SetBannerLine` → `PlayText`)
-- Formal answer after `YOU>` (`TtsPlanner` → `EnqueueFormalAnswer`; short answers as Static, long answers merge PCM per job)
+- Formal answer after `YOU>` (`VoiceReplyBridge` → `TtsPlanner` → `EnqueueFormalAnswer`; streaming PCM per sentence)
 
 Thinking visible on terminal; **not** sent to TTS.
 
@@ -55,13 +55,14 @@ Thinking visible on terminal; **not** sent to TTS.
 
 | File | Role |
 |------|------|
-| `tts_ingress.*` | Filter thinking/tags; normalize UTF-8 input |
-| `tts_planner.*` | Stream-plan formal answer segments; zh/en emit thresholds |
-| `tts_worker.*` | Static / FormalAnswer; short formal as Static; coalesce before synth; `generation_` preemption |
-| `melotts_session.*` | RKNN synth; `SynthesizeTextStreaming` sentence-level PCM |
-| `audio_player.*` | Persistent `gst-launch-1.0` pipe writing float32 PCM |
-| `tts_text_sanitizer.*` | `max_speak_chars` truncation only |
-| `lexicon.hpp` / `split.hpp` | Lexicon; English OOV letter fallback |
+| `voice/tts_ingress.*` | Filter thinking/tags; normalize UTF-8 input |
+| `voice/tts_planner.*` | Stream-plan formal answer segments; zh/en emit thresholds |
+| `voice/voice_reply_bridge.*` | LLM chunk → Ingress/Planner → TtsWorker |
+| `voice/tts_worker.*` | Static / FormalAnswer; `generation_` preemption |
+| `adapters/melotts/melotts_session.*` | RKNN synth; `SynthesizeTextStreaming` sentence-level PCM |
+| `voice/audio_player.*` | Persistent `gst-launch-1.0` pipe writing float32 PCM |
+| `voice/tts_text_sanitizer.*` | UTF-8 char `max_speak_chars` truncation |
+| `adapters/melotts/lexicon.hpp` / `split.hpp` | Lexicon; sentence split |
 
 ### Models and config
 

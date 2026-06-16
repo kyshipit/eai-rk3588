@@ -8,8 +8,7 @@
 #include <string>
 #include "adapter_signals.h"
 #include "adapters/llm/llm_worker.h"
-
-class TtsWorker;
+#include "voice/voice_output.h"
 
 class LlmGreeting {
 public:
@@ -17,8 +16,8 @@ public:
     void Reset();
     // 绑定 LLM worker（并注册输出回调）。
     void SetLlmWorker(LlmWorker* worker);
-    // 绑定 TTS；skip_static_greeting 为 true 时不播 yaml 问候。
-    void SetTtsWorker(TtsWorker* tts, bool skip_static_greeting);
+    // 绑定出声实现；skip_static_greeting 为 true 时不播 yaml 问候。
+    void SetVoiceOutput(IVoiceOutput* voice, bool skip_static_greeting);
     // 设置自动问候文本（严格按配置覆盖，允许空串关闭自动问候）。
     void SetAutoGreetingText(const std::string& text);
     // 设置稳定人脸触发阈值。
@@ -68,7 +67,7 @@ private:
     static const char* SourceName(LlmPromptSource src);
 
     LlmWorker* worker_ = nullptr;
-    TtsWorker* tts_ = nullptr;
+    IVoiceOutput* voice_ = nullptr;
     bool skip_static_greeting_ = false;
     std::string auto_greeting_text_;
     int face_stable_count_ = 0;

@@ -31,7 +31,7 @@ model:
     # 上下文长度上限。
     max_context_len: 2048
     # 生成侧系统提示（rkllm_set_chat_template）；空串则用模型默认行为。
-    system_prompt: "你是语音对话助手。用纯文本简短回答，不要用 Markdown 或列表"
+    system_prompt: "你是语音对话助手：简短回答，禁止数字分点、加粗、分段、分步讲解，纯文字概括。"
     # 程序启动后是否立即异步预加载模型（减少首次调用卡顿）。
     preload_on_startup: true
     # SCRFD 槽位激活时是否触发预加载。
@@ -79,23 +79,23 @@ model:
     single_shot_max_chars: 96
     # 正式回答规划：语言感知切分，禁止英文单词级合成。
     planner:
-      zh_min_chars: 12
-      zh_max_chars: 24
+      zh_min_chars: 6
+      zh_max_chars: 18
       en_min_words: 4
       en_max_words: 8
-      fallback_timeout_ms: 800
+      fallback_timeout_ms: 400
       # 整段回答不超过此字数时，FINISH 一次性送 TTS，不在流式中途按 800ms/句界切碎。
       short_answer_max_chars: 96
-    # 播放低水位保护策略：在 TTS 断粮风险高时临时降视觉负载（优先关 yolo）。
+    # 播放低水位保护策略：TTS 活跃期对 YOLO 降帧（非关死），scrfd 保持全帧率。
     qos:
-      # 总开关：false 时不做 TTS 驱动的视觉降载。
+      # 总开关：false 时不做 TTS 驱动的视觉降载，YOLO 每帧推理。
       enable_visual_throttle: true
-      # PCM 队列片段数 <= low 时记录低水位；人脸对话 TTS 活跃期会整轮保护。
+      # TTS 活跃期 YOLO 推理步长：每 N 帧跑一次（>=2 才降帧，1 等同全帧率）。
+      yolo_infer_stride: 3
+      # PCM 队列片段数 <= low 时记录低水位（诊断用）。
       low_watermark_chunks: 1
       # PCM 队列片段数 >= high 时解除低水位锁存（用于日志/诊断）。
       high_watermark_chunks: 3
-      # 正式回答首段开播前至少缓存的 PCM 片段数（每 job 合并为 1 块，设为 1）。
-      min_start_pcm_chunks: 1
 
 system:
   # 日志级别：debug / info / warn / error / fatal。

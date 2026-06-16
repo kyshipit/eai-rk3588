@@ -1,5 +1,5 @@
 /*
- * adapters/tts/melotts_session.h — MeloTTS RKNN 合成会话（encoder/decoder + 词表）。
+ * adapters/melotts/melotts_session.h — MeloTTS RKNN 合成会话（encoder/decoder + 词表）。
  */
 #pragma once
 
