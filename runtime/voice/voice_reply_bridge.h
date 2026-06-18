@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "rkllm.h"
+#include "split.hpp"
 #include "tts_ingress.h"
 #include "tts_planner.h"
 
@@ -46,8 +47,13 @@ private:
         std::string chunk;
     };
 
-    void DrainDeferredTtsEventsUnlocked(std::vector<std::string>& segments_out);
+    void DrainDeferredTtsEventsUnlocked(std::vector<std::string>& segments_out, bool& run_finished_out);
     bool IsCurrentRunLiveUnlocked() const;
+    // 复位本轮正式回答的攒字/首句开工状态。
+    void ResetFormalPipelineUnlocked();
+    // 将 Planner 本批片段并入攒字缓冲，产出应立即送 TTS 与可预取块。
+    void AccumulateFormalSegmentsUnlocked(const std::vector<std::string>& segments, bool run_finished,
+                                          std::string& immediate_out, std::string& prefetch_out);
 
     TtsWorker* tts_ = nullptr;
     bool enabled_ = false;
@@ -56,5 +62,8 @@ private:
     std::deque<TtsEvent> events_;
     uint64_t desired_session_id_ = 1;
     uint64_t active_run_session_id_ = 1;
+    // 首句已送 TTS 后，后续片段先攒在此，达句界或阈值再预取入队。
+    std::string deferred_formal_;
+    bool formal_pipeline_started_ = false;
     mutable std::mutex mutex_;
 };

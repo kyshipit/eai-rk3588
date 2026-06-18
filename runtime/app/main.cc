@@ -150,11 +150,11 @@ int main(int argc, char** argv) {
     int llm_tts_max_chars = cfg.GetInt("model.tts.max_speak_chars");
     int llm_tts_split_min_chars = cfg.GetInt("model.tts.split_min_chars", 4);
     int llm_tts_single_shot_max = cfg.GetInt("model.tts.single_shot_max_chars", 96);
-    int llm_tts_planner_zh_min = cfg.GetInt("model.tts.planner.zh_min_chars", 8);
-    int llm_tts_planner_zh_max = cfg.GetInt("model.tts.planner.zh_max_chars", 15);
+    int llm_tts_planner_zh_min = cfg.GetInt("model.tts.planner.zh_min_chars", 2);
+    int llm_tts_planner_zh_max = cfg.GetInt("model.tts.planner.zh_max_chars", 48);
     int llm_tts_planner_en_min = cfg.GetInt("model.tts.planner.en_min_words", 4);
     int llm_tts_planner_en_max = cfg.GetInt("model.tts.planner.en_max_words", 8);
-    int llm_tts_planner_fallback_ms = cfg.GetInt("model.tts.planner.fallback_timeout_ms", 600);
+    int llm_tts_planner_fallback_ms = cfg.GetInt("model.tts.planner.fallback_timeout_ms", 150);
     int llm_tts_planner_short_max = cfg.GetInt("model.tts.planner.short_answer_max_chars", 96);
     bool llm_tts_preload = cfg.GetBool("model.tts.preload_on_startup");
     float llm_tts_speed = static_cast<float>(std::atof(cfg.GetString("model.tts.speed", "1.0").c_str()));

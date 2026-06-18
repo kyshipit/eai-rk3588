@@ -77,14 +77,14 @@ model:
     split_min_chars: 12
     # 不超过此字数时整段一次 decoder（与问候 PlayText 相同）；须 >= planner.short_answer_max_chars。
     single_shot_max_chars: 96
-    # 正式回答规划：语言感知切分，禁止英文单词级合成。
+    # 正式回答规划：句末即送 TTS 开工，无句末时按字数兜底切分。
     planner:
-      zh_min_chars: 6
-      zh_max_chars: 18
+      zh_min_chars: 2
+      zh_max_chars: 48
       en_min_words: 4
       en_max_words: 8
-      fallback_timeout_ms: 400
-      # 整段回答不超过此字数时，FINISH 一次性送 TTS，不在流式中途按 800ms/句界切碎。
+      fallback_timeout_ms: 150
+      # 保留配置项；短答在 FINISH 时 Flush 一次性下发，Feed 不再硬挡住吐段。
       short_answer_max_chars: 96
     # 播放低水位保护策略：TTS 活跃期对 YOLO 降帧（非关死），scrfd 保持全帧率。
     qos:

@@ -13,7 +13,7 @@ struct TtsPlannerConfig {
     size_t en_min_words = 4;
     size_t en_max_words = 8;
     int fallback_timeout_ms = 600;
-    // 累计可见正文不超过此字数时，等 FINISH 一次性下发，避免短答被 800ms/句界切碎。
+    // 保留配置项兼容；短答由 FINISH Flush 一次性下发，不再在 Feed 阶段硬挡住吐段。
     size_t short_answer_max_chars = 96;
 };
 

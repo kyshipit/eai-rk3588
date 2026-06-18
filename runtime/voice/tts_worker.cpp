@@ -449,18 +449,11 @@ void TtsWorker::SynthesizeLoop() {
             job = std::move(text_queue_.front());
             text_queue_.pop_front();
             if (job.kind == TextJobKind::FormalAnswer) {
-                // 无阻塞合并：把队列里已到达的同代际 Formal 段拼成一次 Melo，减少静态 decoder 全图次数。
-                const size_t max_merge_chars =
-                    static_cast<size_t>(std::max(24, cfg_.single_shot_max_chars > 0
-                                                             ? cfg_.single_shot_max_chars
-                                                             : 96));
+                // 合并队列中已到达的同代际 Formal，整轮回答尽量一次 Melo 供给。
                 while (!text_queue_.empty()) {
                     const TextJob& next = text_queue_.front();
                     if (next.generation != job.generation ||
                         next.kind != TextJobKind::FormalAnswer) {
-                        break;
-                    }
-                    if (utf8_strlen(job.text) + utf8_strlen(next.text) > max_merge_chars) {
                         break;
                     }
                     job.text += next.text;

@@ -110,8 +110,8 @@ void TtsPlanner::Configure(const TtsPlannerConfig& cfg) {
     if (cfg_.en_max_words < cfg_.en_min_words) {
         cfg_.en_max_words = cfg_.en_min_words;
     }
-    if (cfg_.fallback_timeout_ms < 100) {
-        cfg_.fallback_timeout_ms = 100;
+    if (cfg_.fallback_timeout_ms < 0) {
+        cfg_.fallback_timeout_ms = 0;
     }
     if (cfg_.short_answer_max_chars < cfg_.zh_max_chars) {
         cfg_.short_answer_max_chars = cfg_.zh_max_chars;
@@ -240,15 +240,15 @@ void TtsPlanner::TryEmitSegments(std::vector<std::string>& segments_out) {
             const std::string candidate = pending_.substr(0, sent_end);
             if (mostly_en) {
                 const size_t words = CountEnglishWords(cfg_.en_max_words + 4);
-                if (words >= cfg_.en_max_words ||
-                    (words >= cfg_.en_min_words && elapsed_ms >= cfg_.fallback_timeout_ms)) {
+                // 句末标点：满足最小词数即吐，不等待 fallback 超时。
+                if (words >= cfg_.en_min_words) {
                     emit_candidate(std::move(candidate), sent_end);
                     continue;
                 }
             } else {
                 const size_t char_len = utf8_strlen(candidate);
-                if (char_len >= cfg_.zh_max_chars ||
-                    (char_len >= cfg_.zh_min_chars && elapsed_ms >= cfg_.fallback_timeout_ms)) {
+                // 句末标点：满足最小字数即吐，让 TTS 尽早开工。
+                if (char_len >= cfg_.zh_min_chars) {
                     emit_candidate(std::move(candidate), sent_end);
                     continue;
                 }
@@ -315,17 +315,13 @@ void TtsPlanner::TryEmitSegments(std::vector<std::string>& segments_out) {
     }
 }
 
-// 喂入可见正文增量；达阈值时经 TryEmitSegments 流式切出片段。
+// 喂入可见正文增量；见句末或达强制切分阈值时流式切出片段。
 void TtsPlanner::Feed(const std::string& visible_delta, std::vector<std::string>& segments_out) {
     if (visible_delta.empty()) {
         return;
     }
     pending_.append(visible_delta);
     last_feed_tp_ = std::chrono::steady_clock::now();
-    if (cfg_.short_answer_max_chars > 0 &&
-        utf8_strlen(pending_) <= cfg_.short_answer_max_chars) {
-        return;
-    }
     TryEmitSegments(segments_out);
 }
 
