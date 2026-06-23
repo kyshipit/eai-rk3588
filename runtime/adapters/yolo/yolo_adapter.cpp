@@ -26,14 +26,14 @@ static void log_model_file_info(const std::string &model_path)
 {
 	char resolved_path[PATH_MAX] = {0};
 	if (realpath(model_path.c_str(), resolved_path) != nullptr) {
-		printf("YoloAdapter: model realpath=%s\n", resolved_path);
+		LogInfo("YoloAdapter: model=%s realpath=%s", model_path.c_str(), resolved_path);
 	} else {
-		printf("YoloAdapter: model realpath unresolved, use=%s\n", model_path.c_str());
+		LogInfo("YoloAdapter: model=%s realpath unresolved", model_path.c_str());
 	}
 
 	struct stat st;
 	if (stat(model_path.c_str(), &st) == 0) {
-		printf("YoloAdapter: model size=%lld bytes\n", static_cast<long long>(st.st_size));
+		LogInfo("YoloAdapter: model=%s size=%lld bytes", model_path.c_str(), static_cast<long long>(st.st_size));
 	}
 }
 
@@ -43,7 +43,7 @@ static void log_rknn_sdk_version(rknn_context ctx)
 	rknn_sdk_version ver;
 	memset(&ver, 0, sizeof(ver));
 	if (rknn_query(ctx, RKNN_QUERY_SDK_VERSION, &ver, sizeof(ver)) == RKNN_SUCC) {
-		printf("YoloAdapter: rknn api=%s drv=%s\n", ver.api_version, ver.drv_version);
+		LogInfo("YoloAdapter: rknn api=%s drv=%s", ver.api_version, ver.drv_version);
 	}
 }
 
@@ -51,31 +51,30 @@ static void log_rknn_sdk_version(rknn_context ctx)
 static int validate_yolov5_model_io(uint32_t n_output, rknn_tensor_attr *output_attrs, const char *model_path)
 {
 	if (n_output != 3) {
-		printf("YoloAdapter: unsupported RKNN outputs=%u (need 3 fused heads), path=%s\n",
-		       n_output, model_path);
+		LogError("YoloAdapter: model=%s unsupported RKNN outputs=%u (need 3 fused heads)", model_path,
+				 n_output);
 		for (uint32_t i = 0; i < n_output && i < 12; ++i) {
 			rknn_tensor_attr &a = output_attrs[i];
-			printf("  out[%u] name=%s dims=[%d,%d,%d,%d] type=%s\n", i, a.name, a.dims[0],
-			       a.dims[1], a.dims[2], a.dims[3], get_type_string(a.type));
+			LogInfo("YoloAdapter: model=%s out[%u] name=%s dims=[%d,%d,%d,%d] type=%s", model_path, i,
+					a.name, a.dims[0], a.dims[1], a.dims[2], a.dims[3], get_type_string(a.type));
 		}
 		return -1;
 	}
 	if (output_attrs[0].dims[1] != 255) {
-		printf("YoloAdapter: out0 dims[1]=%d (need 255), name=%s path=%s\n",
-		       output_attrs[0].dims[1], output_attrs[0].name, model_path);
+		LogError("YoloAdapter: model=%s out0 dims[1]=%d (need 255) name=%s", model_path,
+				 output_attrs[0].dims[1], output_attrs[0].name);
 		return -1;
 	}
 	return 0;
 }
 
 /* 打印 RKNN 张量属性（与 cpp/yolov5.cc dump_tensor_attr 一致） */
-static void dump_tensor_attr(rknn_tensor_attr *attr)
+static void dump_tensor_attr(const char *model_tag, rknn_tensor_attr *attr)
 {
-	printf("  index=%d, name=%s, n_dims=%d, dims=[%d, %d, %d, %d], n_elems=%d, size=%d, fmt=%s, type=%s, qnt_type=%s, "
-	       "zp=%d, scale=%f\n",
-	       attr->index, attr->name, attr->n_dims, attr->dims[0], attr->dims[1], attr->dims[2], attr->dims[3],
-	       attr->n_elems, attr->size, get_format_string(attr->fmt), get_type_string(attr->type),
-	       get_qnt_type_string(attr->qnt_type), attr->zp, attr->scale);
+	LogInfo("%s: index=%d name=%s n_dims=%d dims=[%d,%d,%d,%d] n_elems=%d size=%d fmt=%s type=%s qnt_type=%s zp=%d scale=%f",
+			model_tag, attr->index, attr->name, attr->n_dims, attr->dims[0], attr->dims[1], attr->dims[2],
+			attr->dims[3], attr->n_elems, attr->size, get_format_string(attr->fmt), get_type_string(attr->type),
+			get_qnt_type_string(attr->qnt_type), attr->zp, attr->scale);
 }
 
 /* 加载 RKNN、query 输入输出属性（对应 cpp init_yolov5_model） */
@@ -86,7 +85,7 @@ static int init_yolov5_model(const std::string &model_path, rknn_app_context_t *
 	char *model = NULL;
 	int model_len = read_data_from_file(model_path.c_str(), &model);
 	if (model == NULL) {
-		printf("load_model fail!\n");
+		LogError("YoloAdapter: model=%s load_model fail", model_path.c_str());
 		return -1;
 	}
 
@@ -94,7 +93,7 @@ static int init_yolov5_model(const std::string &model_path, rknn_app_context_t *
 	ret = rknn_init(&ctx, model, model_len, 0, NULL);
 	free(model);
 	if (ret < 0) {
-		printf("rknn_init fail! ret=%d\n", ret);
+		LogError("YoloAdapter: model=%s rknn_init fail ret=%d", model_path.c_str(), ret);
 		return -1;
 	}
 	log_rknn_sdk_version(ctx);
@@ -102,38 +101,38 @@ static int init_yolov5_model(const std::string &model_path, rknn_app_context_t *
 	rknn_input_output_num io_num;
 	ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
 	if (ret != RKNN_SUCC) {
-		printf("rknn_query fail! ret=%d\n", ret);
+		LogError("YoloAdapter: model=%s rknn_query RKNN_QUERY_IN_OUT_NUM fail ret=%d", model_path.c_str(), ret);
 		rknn_destroy(ctx);
 		return -1;
 	}
-	printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
+	LogInfo("YoloAdapter: model=%s input_num=%d output_num=%d", model_path.c_str(), io_num.n_input, io_num.n_output);
 
-	printf("input tensors:\n");
+	LogInfo("YoloAdapter: model=%s input tensors:", model_path.c_str());
 	rknn_tensor_attr input_attrs[io_num.n_input];
 	memset(input_attrs, 0, sizeof(input_attrs));
 	for (int i = 0; i < io_num.n_input; ++i) {
 		input_attrs[i].index = i;
 		ret = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &input_attrs[i], sizeof(rknn_tensor_attr));
 		if (ret != RKNN_SUCC) {
-			printf("rknn_query fail! ret=%d\n", ret);
+			LogError("YoloAdapter: model=%s rknn_query RKNN_QUERY_INPUT_ATTR fail ret=%d", model_path.c_str(), ret);
 			rknn_destroy(ctx);
 			return -1;
 		}
-		dump_tensor_attr(&input_attrs[i]);
+		dump_tensor_attr(model_path.c_str(), &input_attrs[i]);
 	}
 
-	printf("output tensors:\n");
+	LogInfo("YoloAdapter: model=%s output tensors:", model_path.c_str());
 	rknn_tensor_attr output_attrs[io_num.n_output];
 	memset(output_attrs, 0, sizeof(output_attrs));
 	for (int i = 0; i < io_num.n_output; ++i) {
 		output_attrs[i].index = i;
 		ret = rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &output_attrs[i], sizeof(rknn_tensor_attr));
 		if (ret != RKNN_SUCC) {
-			printf("rknn_query fail! ret=%d\n", ret);
+			LogError("YoloAdapter: model=%s rknn_query RKNN_QUERY_OUTPUT_ATTR fail ret=%d", model_path.c_str(), ret);
 			rknn_destroy(ctx);
 			return -1;
 		}
-		dump_tensor_attr(&output_attrs[i]);
+		dump_tensor_attr(model_path.c_str(), &output_attrs[i]);
 	}
 
 	if (validate_yolov5_model_io(io_num.n_output, output_attrs, model_path.c_str()) != 0) {
@@ -165,10 +164,11 @@ static int init_yolov5_model(const std::string &model_path, rknn_app_context_t *
 		app_ctx->model_width = input_attrs[0].dims[2];
 		app_ctx->model_channel = input_attrs[0].dims[3];
 	}
-	printf("model input height=%d, width=%d, channel=%d\n",
-	       app_ctx->model_height, app_ctx->model_width, app_ctx->model_channel);
-	LogInfo("YoloAdapter: in=%dx%d out=%u is_quant=%d label=./model/coco_80_labels_list.txt",
-	        app_ctx->model_width, app_ctx->model_height, io_num.n_output, app_ctx->is_quant ? 1 : 0);
+	    LogInfo("YoloAdapter: model=%s input_h=%d input_w=%d channels=%d", model_path.c_str(),
+		    app_ctx->model_height, app_ctx->model_width, app_ctx->model_channel);
+	    LogInfo("YoloAdapter: model=%s in=%dx%d channels=%d n_input=%d n_output=%d is_quant=%d label=./model/coco_80_labels_list.txt",
+		    model_path.c_str(), app_ctx->model_width, app_ctx->model_height, app_ctx->model_channel,
+		    app_ctx->io_num.n_input, app_ctx->io_num.n_output, app_ctx->is_quant ? 1 : 0);
 	return 0;
 }
 
@@ -215,19 +215,19 @@ int YoloAdapter::Init(const std::string &model_path, int npu_core_mask)
 	static std::once_flag postprocess_init_flag;
 	std::call_once(postprocess_init_flag, []() {
 		if (init_post_process() != 0) {
-			printf("YoloAdapter: init_post_process failed (check ./model/coco_80_labels_list.txt)\n");
+			LogError("YoloAdapter: init_post_process failed (check ./model/coco_80_labels_list.txt)");
 		}
 	});
 
 	int ret = init_yolov5_model(model_path, &app_ctx_);
 	if (ret != 0) {
-		printf("YoloAdapter init_yolov5_model fail! ret=%d model_path=%s\n", ret, model_path.c_str());
+		LogError("YoloAdapter: init_yolov5_model fail! ret=%d model=%s", ret, model_path.c_str());
 		return ret;
 	}
 
 	int mask_ret = rknn_set_core_mask(app_ctx_.rknn_ctx, (rknn_core_mask)npu_core_mask);
 	if (mask_ret != RKNN_SUCC) {
-		printf("Warning: rknn_set_core_mask fail ret=%d\n", mask_ret);
+		LogWarn("YoloAdapter: rknn_set_core_mask fail ret=%d", mask_ret);
 	}
 
 	return 0;
@@ -271,7 +271,7 @@ uint8_t *YoloAdapter::Preprocess(const cv::Mat &frame, int &out_size)
 	const int bg_color = 114;
 	int ret = convert_image_with_letterbox(&src_image, &dst_img_, &letter_box_, bg_color);
 	if (ret < 0) {
-		printf("YoloAdapter convert_image_with_letterbox fail! ret=%d\n", ret);
+		LogError("YoloAdapter: convert_image_with_letterbox fail ret=%d", ret);
 		out_size = 0;
 		return nullptr;
 	}
@@ -296,13 +296,13 @@ int YoloAdapter::Inference(std::shared_ptr<void> &model_output)
 
 	int ret = rknn_inputs_set(app_ctx_.rknn_ctx, app_ctx_.io_num.n_input, inputs_.data());
 	if (ret < 0) {
-		printf("YoloAdapter rknn_inputs_set fail! ret=%d\n", ret);
+		LogError("YoloAdapter: rknn_inputs_set fail ret=%d", ret);
 		return ret;
 	}
 
 	ret = rknn_run(app_ctx_.rknn_ctx, nullptr);
 	if (ret < 0) {
-		printf("YoloAdapter rknn_run fail! ret=%d\n", ret);
+		LogError("YoloAdapter: rknn_run fail ret=%d", ret);
 		return ret;
 	}
 
@@ -315,7 +315,7 @@ int YoloAdapter::Inference(std::shared_ptr<void> &model_output)
 
 	ret = rknn_outputs_get(app_ctx_.rknn_ctx, app_ctx_.io_num.n_output, holder->outputs.data(), NULL);
 	if (ret < 0) {
-		printf("YoloAdapter rknn_outputs_get fail! ret=%d\n", ret);
+		LogError("YoloAdapter: rknn_outputs_get fail ret=%d", ret);
 		return ret;
 	}
 	holder->ctx = app_ctx_.rknn_ctx;
@@ -336,7 +336,7 @@ std::string YoloAdapter::Postprocess(const std::shared_ptr<void> &model_output)
 	const int ret = post_process(&app_ctx_, holder->outputs.data(), &letter_box_, BOX_THRESH, NMS_THRESH,
 	                             &od_results_);
 	if (ret < 0) {
-		printf("YoloAdapter post_process fail! ret=%d\n", ret);
+		LogError("YoloAdapter: post_process fail ret=%d", ret);
 	}
 
 	std::string result;

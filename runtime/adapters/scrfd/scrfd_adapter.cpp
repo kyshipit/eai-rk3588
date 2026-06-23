@@ -71,8 +71,21 @@ static int InitScrfdModel(const std::string& model_path, scrfd_app_context_t* ap
         app_ctx->model_channel = in0.dims[3];
     }
 
-    LogInfo("ScrfdAdapter: model loaded outputs=%u input=%dx%d", io_num.n_output,
-            app_ctx->model_width, app_ctx->model_height);
+        LogInfo("ScrfdAdapter: model=%s loaded n_input=%d n_output=%d input=%dx%d", model_path.c_str(),
+            io_num.n_input, io_num.n_output, app_ctx->model_width, app_ctx->model_height);
+
+        for (uint32_t i = 0; i < io_num.n_input; ++i) {
+        const auto &a = app_ctx->input_attrs[i];
+        LogInfo("ScrfdAdapter: model=%s input[%u] name=%s dims=[%d,%d,%d,%d] type=%s qnt=%s zp=%d scale=%f",
+            model_path.c_str(), a.index, a.name, a.dims[0], a.dims[1], a.dims[2], a.dims[3],
+            get_type_string(a.type), get_qnt_type_string(a.qnt_type), a.zp, a.scale);
+        }
+        for (uint32_t i = 0; i < io_num.n_output; ++i) {
+        const auto &a = app_ctx->output_attrs[i];
+        LogInfo("ScrfdAdapter: model=%s output[%u] name=%s dims=[%d,%d,%d,%d] type=%s qnt=%s zp=%d scale=%f",
+            model_path.c_str(), a.index, a.name, a.dims[0], a.dims[1], a.dims[2], a.dims[3],
+            get_type_string(a.type), get_qnt_type_string(a.qnt_type), a.zp, a.scale);
+        }
     return 0;
 }
 

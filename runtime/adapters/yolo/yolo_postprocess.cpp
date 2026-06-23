@@ -28,6 +28,8 @@
 #include <string.h>
 #include <sys/time.h>
 
+#include "platform/logging.h"
+
 #include <set>
 #include <vector>
 #define LABEL_NALE_TXT_PATH "./model/coco_80_labels_list.txt"
@@ -89,7 +91,7 @@ static int readLines(const char *fileName, char *lines[], int max_line)
 
     if (file == NULL)
     {
-        printf("Open %s fail!\n", fileName);
+        LogError("YoloPost: open %s fail", fileName);
         return -1;
     }
 
@@ -106,7 +108,7 @@ static int readLines(const char *fileName, char *lines[], int max_line)
 /* 加载 COCO 类别名列表 */
 static int loadLabelName(const char *locationFilename, char *label[])
 {
-    printf("load lable %s\n", locationFilename);
+    LogInfo("YoloPost: load label %s", locationFilename);
     readLines(locationFilename, label, OBJ_CLASS_NUM);
     return 0;
 }
@@ -589,7 +591,7 @@ int init_post_process()
     ret = loadLabelName(LABEL_NALE_TXT_PATH, labels);
     if (ret < 0)
     {
-        printf("Load %s failed!\n", LABEL_NALE_TXT_PATH);
+        LogError("YoloPost: Load %s failed", LABEL_NALE_TXT_PATH);
         return -1;
     }
     return 0;

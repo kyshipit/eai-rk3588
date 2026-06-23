@@ -28,7 +28,7 @@ static void LogMeloPhaseTime(TIMER& timer, const char* phase) {
 }
 
 // 调试打印 RKNN 动态 shape 范围。
-static void dump_input_dynamic_range(rknn_input_range *dyn_range)
+static void dump_input_dynamic_range(const char* model_tag, rknn_input_range *dyn_range)
 {
     std::string range_str = "";
     for (int n = 0; n < dyn_range->shape_number; ++n)
@@ -42,12 +42,12 @@ static void dump_input_dynamic_range(rknn_input_range *dyn_range)
         range_str += "]";
     }
 
-    printf("  index=%d, name=%s, shape_number=%d, range=[%s], fmt = %s\n", dyn_range->index, dyn_range->name,
-           dyn_range->shape_number, range_str.c_str(), get_format_string(dyn_range->fmt));
+    LogInfo("%s: input_range index=%d name=%s shape_number=%d range=[%s] fmt=%s", model_tag,
+            dyn_range->index, dyn_range->name, dyn_range->shape_number, range_str.c_str(), get_format_string(dyn_range->fmt));
 }
 
 // 调试打印单个 tensor 的维度与量化信息。
-static void dump_tensor_attr(rknn_tensor_attr *attr)
+static void dump_tensor_attr(const char* model_tag, rknn_tensor_attr *attr)
 {
     char dims_str[100];
     char temp_str[100];
@@ -65,9 +65,9 @@ static void dump_tensor_attr(rknn_tensor_attr *attr)
         }
     }
 
-    printf("  index=%d, name=%s, n_dims=%d, dims=[%s], n_elems=%d, size=%d, fmt=%s, type=%s, qnt_type=%s, zp=%d, scale=%f\n",
-           attr->index, attr->name, attr->n_dims, dims_str, attr->n_elems, attr->size, get_format_string(attr->fmt),
-           get_type_string(attr->type), get_qnt_type_string(attr->qnt_type), attr->zp, attr->scale);
+    LogInfo("%s: index=%d name=%s n_dims=%d dims=[%s] n_elems=%d size=%d fmt=%s type=%s qnt_type=%s zp=%d scale=%f",
+            model_tag, attr->index, attr->name, attr->n_dims, dims_str, attr->n_elems, attr->size, get_format_string(attr->fmt),
+            get_type_string(attr->type), get_qnt_type_string(attr->qnt_type), attr->zp, attr->scale);
 }
 
 // 加载 RKNN 模型文件并查询 IO tensor 属性。
@@ -80,7 +80,7 @@ int init_melotts_model(const char *model_path, melotts_rknn_context_t *app_ctx)
     ret = rknn_init(&ctx, (char *)model_path, model_len, 0, NULL);
     if (ret < 0)
     {
-        printf("rknn_init fail! ret=%d\n", ret);
+        LogError("MeloTTS: model=%s rknn_init fail ret=%d", model_path, ret);
         return -1;
     }
 
@@ -89,13 +89,13 @@ int init_melotts_model(const char *model_path, melotts_rknn_context_t *app_ctx)
     ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
     if (ret != RKNN_SUCC)
     {
-        printf("rknn_query fail! ret=%d\n", ret);
+        LogError("MeloTTS: model=%s rknn_query RKNN_QUERY_IN_OUT_NUM fail ret=%d", model_path, ret);
         return -1;
     }
-    printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
+    LogInfo("MeloTTS: model=%s n_input=%d n_output=%d", model_path, io_num.n_input, io_num.n_output);
 
     // Get Model Input Info
-    printf("input tensors:\n");
+    LogInfo("MeloTTS: model=%s input tensors:", model_path);
     rknn_tensor_attr input_attrs[io_num.n_input];
     memset(input_attrs, 0, sizeof(input_attrs));
     for (int i = 0; i < io_num.n_input; i++)
@@ -104,14 +104,14 @@ int init_melotts_model(const char *model_path, melotts_rknn_context_t *app_ctx)
         ret = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret != RKNN_SUCC)
         {
-            printf("rknn_query fail! ret=%d\n", ret);
+            LogError("MeloTTS: model=%s rknn_query RKNN_QUERY_INPUT_ATTR fail ret=%d", model_path, ret);
             return -1;
         }
-        dump_tensor_attr(&(input_attrs[i]));
+        dump_tensor_attr(model_path, &(input_attrs[i]));
     }
 
     // Get Model Output Info
-    printf("output tensors:\n");
+    LogInfo("MeloTTS: model=%s output tensors:", model_path);
     rknn_tensor_attr output_attrs[io_num.n_output];
     memset(output_attrs, 0, sizeof(output_attrs));
     for (int i = 0; i < io_num.n_output; i++)
@@ -120,10 +120,10 @@ int init_melotts_model(const char *model_path, melotts_rknn_context_t *app_ctx)
         ret = rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret != RKNN_SUCC)
         {
-            printf("rknn_query fail! ret=%d\n", ret);
+            LogError("MeloTTS: model=%s rknn_query RKNN_QUERY_OUTPUT_ATTR fail ret=%d", model_path, ret);
             return -1;
         }
-        dump_tensor_attr(&(output_attrs[i]));
+        dump_tensor_attr(model_path, &(output_attrs[i]));
     }
 
     // Set to context
@@ -141,7 +141,7 @@ int init_melotts_model(const char *model_path, melotts_rknn_context_t *app_ctx)
         ret = rknn_query(ctx, RKNN_QUERY_INPUT_DYNAMIC_RANGE, &(app_ctx->shape_range[i]),
                          sizeof(rknn_input_range));
         if (ret == RKNN_SUCC && app_ctx->shape_range[i].shape_number > 0) {
-            dump_input_dynamic_range(&(app_ctx->shape_range[i]));
+            dump_input_dynamic_range(model_path, &(app_ctx->shape_range[i]));
         }
     }
 
@@ -251,7 +251,7 @@ int inference_encoder_model(melotts_rknn_context_t *app_ctx, std::vector<int64_t
     ret = rknn_inputs_set(app_ctx->rknn_ctx, n_input, inputs);
     if (ret < 0)
     {
-        printf("rknn_input_set fail! ret=%d\n", ret);
+        LogError("MeloTTS: rknn_inputs_set failed ret=%d", ret);
         goto out;
     }
 
@@ -259,7 +259,7 @@ int inference_encoder_model(melotts_rknn_context_t *app_ctx, std::vector<int64_t
     ret = rknn_run(app_ctx->rknn_ctx, NULL);
     if (ret < 0)
     {
-        printf("rknn_run fail! ret=%d\n", ret);
+        LogError("MeloTTS: rknn_run failed ret=%d", ret);
         goto out;
     }
 
@@ -273,7 +273,7 @@ int inference_encoder_model(melotts_rknn_context_t *app_ctx, std::vector<int64_t
     ret = rknn_outputs_get(app_ctx->rknn_ctx, n_output, outputs, NULL);
     if (ret < 0)
     {
-        printf("rknn_outputs_get fail! ret=%d\n", ret);
+        LogError("MeloTTS: rknn_outputs_get failed ret=%d", ret);
         goto out;
     }
 
@@ -501,7 +501,7 @@ int inference_decoder_model(melotts_rknn_context_t *app_ctx, std::vector<float> 
     ret = rknn_inputs_set(app_ctx->rknn_ctx, n_input, inputs);
     if (ret < 0)
     {
-        printf("rknn_input_set fail! ret=%d\n", ret);
+        LogError("MeloTTS: rknn_inputs_set failed ret=%d", ret);
         goto out;
     }
 
@@ -510,7 +510,7 @@ int inference_decoder_model(melotts_rknn_context_t *app_ctx, std::vector<float> 
     ret = rknn_run(app_ctx->rknn_ctx, nullptr);
     if (ret < 0)
     {
-        printf("rknn_run fail! ret=%d\n", ret);
+        LogError("MeloTTS: rknn_run failed ret=%d", ret);
         goto out;
     }
 
@@ -520,7 +520,7 @@ int inference_decoder_model(melotts_rknn_context_t *app_ctx, std::vector<float> 
     ret = rknn_outputs_get(app_ctx->rknn_ctx, n_output, outputs, NULL);
     if (ret < 0)
     {
-        printf("rknn_outputs_get fail! ret=%d\n", ret);
+        LogError("MeloTTS: rknn_outputs_get failed ret=%d", ret);
         goto out;
     }
 
@@ -594,7 +594,7 @@ int inference_melotts_model(rknn_melotts_context_t *app_ctx, std::vector<int64_t
     ret = inference_encoder_model(&app_ctx->encoder_context, phones, phone_len, speaker_id, tones, lang_ids, ja_bert, logw,  x_mask, g, m_p, logs_p);
     if (ret != 0)
     {
-        printf("inference_encoder_model fail! ret=%d\n", ret);
+        LogError("MeloTTS: inference_encoder_model fail! ret=%d", ret);
         return ret;
     }
     timer.tok();
@@ -660,7 +660,7 @@ int inference_melotts_model(rknn_melotts_context_t *app_ctx, std::vector<int64_t
     ret = inference_decoder_model(&app_ctx->decoder_context, attn, y_mask, g, m_p, logs_p, predicted_lengths_max_real, output_wav_data);
     if (ret != 0)
     {
-        printf("inference_decoder_model fail! ret=%d\n", ret);
+        LogError("MeloTTS: inference_decoder_model fail! ret=%d", ret);
         return ret;
     }
     timer.tok();
