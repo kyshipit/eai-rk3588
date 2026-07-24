@@ -297,21 +297,78 @@ out:
     return ret;
 }
 
+// 将float特征按张量scale/zp量化为int8定点数据，供INT8模型输入使用
+static int8_t* quantize_to_int8(const float *src, int n_elems, rknn_tensor_attr *attr)
+{
+    if (src == nullptr || n_elems <= 0 || attr == nullptr)
+    {
+        return nullptr;
+    }
+    int8_t *dst = (int8_t *)malloc(n_elems);
+    if (dst == nullptr)
+    {
+        return nullptr;
+    }
+    float scale = attr->scale;
+    int zp = attr->zp;
+    for (int i = 0; i < n_elems; i++)
+    {
+        // 修改这一行
+        float q = roundf(src[i] / scale) + zp;
+        if (q > 127.0f) q = 127.0f;
+        if (q < -128.0f) q = -128.0f;
+        dst[i] = static_cast<int8_t>(q);
+    }
+    return dst;
+}
 
 // 由 attention 与 prior 运行 decoder，输出 float 波形样本。
 int inference_decoder_model(melotts_rknn_context_t *app_ctx, std::vector<float> &attn, std::vector<float> &y_mask, std::vector<float> &g, 
     std::vector<float> &m_p, std::vector<float> &logs_p, int &predicted_lengths_max_real, std::vector<float> &output_wav_data)
 {
     int ret;
-    int n_input = 6;
-    int n_output = 1;
+    int n_input = app_ctx->io_num.n_input;
+    int n_output = app_ctx->io_num.n_output;
     float noise_scale = NOISE_SCALE;
+    int safe_len;
+    size_t copy_elem;
+    //调试参数
+    float *output_float = nullptr;
+    float sum = 0.0f;
+    float max_val = 0.0f;
+    int n = 0;
+    size_t total_elem = 0;
 
     rknn_input inputs[n_input];
     rknn_output outputs[n_output];
     memset(inputs, 0, sizeof(inputs));
     memset(outputs, 0, sizeof(outputs));
 
+    // 封装输入填充逻辑：自动适配FP32 / INT8量化输入
+    auto set_input = [&](int idx, const float *src, int elem_num) {
+        inputs[idx].index = idx;
+        rknn_tensor_attr *attr = &app_ctx->input_attrs[idx];
+        if (attr->type == RKNN_TENSOR_INT8)
+        {
+            // INT8量化分支：CPU浮点转定点int8，pass_through=0 让驱动做拷贝
+            // fmt=RKNN_TENSOR_UNDEFINED 避免驱动按NCHW布局错误解析平坦数据
+            inputs[idx].type = RKNN_TENSOR_INT8;
+            inputs[idx].fmt  = RKNN_TENSOR_UNDEFINED;
+            inputs[idx].size = elem_num;
+            inputs[idx].buf = quantize_to_int8(src, elem_num, attr);
+        }
+        else
+        {
+            // FP32浮点分支，兼容未量化模型
+            inputs[idx].type = RKNN_TENSOR_FLOAT32;
+            inputs[idx].fmt  = RKNN_TENSOR_UNDEFINED;
+            inputs[idx].size = elem_num * sizeof(float);
+            inputs[idx].buf = (float *)malloc(inputs[idx].size);
+            memcpy(inputs[idx].buf, src, inputs[idx].size);
+        }
+    };
+
+    /*
     // Set Input Data
     // ["attn", "y_mask", "g", "m_p", "logs_p", "noise_scale"],
     inputs[0].index = 0;
@@ -349,6 +406,97 @@ int inference_decoder_model(melotts_rknn_context_t *app_ctx, std::vector<float> 
     inputs[5].size = 1 * sizeof(float);
     inputs[5].buf = (float *)malloc(inputs[5].size);
     memcpy(inputs[5].buf, &noise_scale, inputs[5].size);
+    */
+
+    // ======================================================================
+    // 动态模型必须更新本轮推理输入维度，使用当前SDK支持的attr入参版本rknn_set_input_shape接口
+    // 从已缓存的input_attrs拷贝张量基础属性，修改动态维度后下发给RKNN上下文
+    // 作用：告知NPU本次真实序列长度，避免按最大编译维度解析导致输出数据错乱崩溃，触发vector越界崩溃
+    int seq_len = static_cast<int>(attn.size()) / 256;
+    // 新增：计算当前推理真实有效元素个数
+    int valid_attn_elem = seq_len * 256;
+    int valid_y_mask_elem = seq_len;
+    rknn_tensor_attr attr;
+
+    // input0 attn [1, seq_len, 256]
+    attr = app_ctx->input_attrs[0];
+    attr.n_dims = 3;
+    attr.dims[0] = 1;
+    attr.dims[1] = seq_len;
+    attr.dims[2] = 256;
+    ret = rknn_set_input_shape(app_ctx->rknn_ctx, &attr);
+    if(ret != RKNN_SUCC) {
+        LogError("set attn shape failed, ret=%d", ret);
+        goto out;
+    }
+
+    // input1 y_mask [1, 1, seq_len]
+    attr = app_ctx->input_attrs[1];
+    attr.n_dims = 3;
+    attr.dims[0] = 1;
+    attr.dims[1] = 1;
+    attr.dims[2] = seq_len;
+    ret = rknn_set_input_shape(app_ctx->rknn_ctx, &attr);
+    if(ret != RKNN_SUCC) {
+        LogError("set y_mask shape failed, ret=%d", ret);
+        goto out;
+    }
+
+    // input2 g [1,256,1]
+    attr = app_ctx->input_attrs[2];
+    attr.n_dims = 3;
+    attr.dims[0] = 1;
+    attr.dims[1] = 256;
+    attr.dims[2] = 1;
+    ret = rknn_set_input_shape(app_ctx->rknn_ctx, &attr);
+    if(ret != RKNN_SUCC) {
+        LogError("set g shape failed, ret=%d", ret);
+        goto out;
+    }
+
+    // input3 m_p [1,192,256]
+    attr = app_ctx->input_attrs[3];
+    attr.n_dims = 3;
+    attr.dims[0] = 1;
+    attr.dims[1] = 192;
+    attr.dims[2] = 256;
+    ret = rknn_set_input_shape(app_ctx->rknn_ctx, &attr);
+    if(ret != RKNN_SUCC) {
+        LogError("set m_p shape failed, ret=%d", ret);
+        goto out;
+    }
+
+    // input4 logs_p [1,192,256]
+    attr = app_ctx->input_attrs[4];
+    attr.n_dims = 3;
+    attr.dims[0] = 1;
+    attr.dims[1] = 192;
+    attr.dims[2] = 256;
+    ret = rknn_set_input_shape(app_ctx->rknn_ctx, &attr);
+    if(ret != RKNN_SUCC) {
+        LogError("set logs_p shape failed, ret=%d", ret);
+        goto out;
+    }
+
+    // input5 noise_scale [1]
+    attr = app_ctx->input_attrs[5];
+    attr.n_dims = 1;
+    attr.dims[0] = 1;
+    ret = rknn_set_input_shape(app_ctx->rknn_ctx, &attr);
+    if(ret != RKNN_SUCC) {
+        LogError("set noise_scale shape failed, ret=%d", ret);
+        goto out;
+    }
+    // =================================================================
+
+    // 填充6路输入，使用vector真实长度，杜绝越界读取
+    // 填充6路输入，使用真实有效长度，去掉多余0
+    set_input(0, attn.data(), valid_attn_elem);
+    set_input(1, y_mask.data(), valid_y_mask_elem);
+    set_input(2, g.data(), static_cast<int>(g.size()));
+    set_input(3, m_p.data(), static_cast<int>(m_p.size()));
+    set_input(4, logs_p.data(), static_cast<int>(logs_p.size()));
+    set_input(5, &noise_scale, 1);
 
     ret = rknn_inputs_set(app_ctx->rknn_ctx, n_input, inputs);
     if (ret < 0)
@@ -376,7 +524,31 @@ int inference_decoder_model(melotts_rknn_context_t *app_ctx, std::vector<float> 
         goto out;
     }
 
-    memcpy(output_wav_data.data(), (float *)outputs[0].buf, predicted_lengths_max_real * PREDICTED_BATCH * sizeof(float));
+    /*
+    // ========== 新增调试打印 ==========
+    output_float = (float *)outputs[0].buf;
+    sum = 0.0f;
+    max_val = 0.0f;
+    total_elem = outputs[0].size / sizeof(float);
+    n = static_cast<int>(std::min((size_t)100, total_elem));
+    //n = std::min(100, outputs[0].size / sizeof(float)); // 只打印前 100 个值
+    for (int i = 0; i < n; i++) {
+        float v = output_float[i];
+        sum += fabs(v);
+        if (fabs(v) > max_val) max_val = fabs(v);
+    }
+    LogInfo("INT8 Decoder output: first %d samples sum_abs=%.6f, max_abs=%.6f", n, sum, max_val);
+    // ===================================
+    */
+
+    safe_len = std::max(1, predicted_lengths_max_real);
+    copy_elem = static_cast<size_t>(safe_len) * PREDICTED_BATCH;
+    if (copy_elem > output_wav_data.size())
+    {
+        output_wav_data.resize(copy_elem);
+    }
+    memcpy(output_wav_data.data(), (float *)outputs[0].buf, copy_elem * sizeof(float));
+    //memcpy(output_wav_data.data(), (float *)outputs[0].buf, predicted_lengths_max_real * PREDICTED_BATCH * sizeof(float));
 
 out:
     // Remeber to release rknn output
@@ -436,6 +608,52 @@ int inference_melotts_model(rknn_melotts_context_t *app_ctx, std::vector<int64_t
     middle_process(logw, x_mask, attn, y_mask, speed, predicted_lengths_max_real);
     timer.tok();
     LogMeloPhaseTime(timer, "middle_process");
+
+    /*
+    // ===== 新增保存校准数据（仅在收集数据时启用） =====
+    static int calib_counter = 0;
+    char fname[256];
+
+    // 保存 attn（整个向量，大小固定 ATTN_SIZE = 512*256）
+    snprintf(fname, sizeof(fname), "real_calib/attn_%04d.bin", calib_counter);
+    FILE* fp = fopen(fname, "wb");
+    fwrite(attn.data(), sizeof(float), attn.size(), fp);
+    fclose(fp);
+
+    // 保存 y_mask（整个向量，大小固定 Y_MASK_SIZE = 512）
+    snprintf(fname, sizeof(fname), "real_calib/y_mask_%04d.bin", calib_counter);
+    fp = fopen(fname, "wb");
+    fwrite(y_mask.data(), sizeof(float), y_mask.size(), fp);
+    fclose(fp);
+
+    // 保存 g（固定大小 256）
+    snprintf(fname, sizeof(fname), "real_calib/g_%04d.bin", calib_counter);
+    fp = fopen(fname, "wb");
+    fwrite(g.data(), sizeof(float), g.size(), fp);
+    fclose(fp);
+
+    // 保存 m_p（固定大小 192*256）
+    snprintf(fname, sizeof(fname), "real_calib/m_p_%04d.bin", calib_counter);
+    fp = fopen(fname, "wb");
+    fwrite(m_p.data(), sizeof(float), m_p.size(), fp);
+    fclose(fp);
+
+    // 保存 logs_p（固定大小 192*256）
+    snprintf(fname, sizeof(fname), "real_calib/logs_p_%04d.bin", calib_counter);
+    fp = fopen(fname, "wb");
+    fwrite(logs_p.data(), sizeof(float), logs_p.size(), fp);
+    fclose(fp);
+
+    // 保存 noise_scale（固定值 0.6）
+    float ns = NOISE_SCALE;
+    snprintf(fname, sizeof(fname), "real_calib/noise_scale_%04d.bin", calib_counter);
+    fp = fopen(fname, "wb");
+    fwrite(&ns, sizeof(float), 1, fp);
+    fclose(fp);
+
+    calib_counter++;
+    // ===== 保存结束 ============================
+    */
 
     // decoder
     timer.tik();
