@@ -1,240 +1,255 @@
-Language: **English** | [中文](tts-melotts_CN.md)
+Language: **中文** | [English](tts-melotts_EN.md)
 
-# TTS and voice dialogue design
+# TTS 与语音对话体验设计
 
-> **Sole TTS design and acceptance document**. Code: `runtime/voice/` + `runtime/adapters/melotts/`; config: `runtime/config/default.yaml` → `model.tts` (requires `model.llm.enabled: true` at startup).
+> **唯一 TTS 设计与验收文档**。实现代码：`runtime/voice/`（编排）+ `runtime/adapters/melotts/`（模型）；配置：`runtime/config/default.yaml` → `model.tts`（启动时仍要求 `model.llm.enabled: true`）。
 
 ---
 
-## 1. Target experience
+## 1. 目标体验
 
-On-board face-gated reference app:
+面向当前板端「有人脸对话」参考应用，语音交互体感应为：
 
 ```text
-Stable face → static greeting (text + voice via PlayText)
-→ YOU> → streaming AI> → TtsPlanner → Melo synth → continuous formal speech
+人脸稳定 → 静态问候（文字+语音，PlayText）
+→ 用户 YOU> → LLM 流式 AI> → TtsPlanner 规划 → Melo 合成 → 连续播报正式回答
 ```
 
-User perception:
+用户感知：
 
-- Greeting (e.g. “您好，需要帮忙吗”) is **clear from the first syllable**;
-- Formal answers **without mid-sentence dropouts**; **opening text at sentence start is audible**;
-- New `YOU>` preempts old answer (`generation_`);
-- Grace/Locked rejects new input after face leave.
+- 问候语（如「您好，需要帮忙吗」）**句首清楚、整句连贯**；
+- 正式回答 **不中途吃字、不明显断档**；**句首文字可听见**；
+- 新 `YOU>` 可打断旧回答（`generation_` 抢占）；
+- 人脸 Grace/Locked 后拒绝新输入。
 
-**Principle**: **Audible continuity and intelligible onsets** over “play chunks ASAP”. Melo decoder ~**1.6–2.2 s** per call, multi-sentence **serial only** — Planner, synth, and playback must align.
+**设计原则**：优先 **听感连续、句首可辨、整句完整**；不追求「尽快切块播」。当前板端 `decoder-ZH_MIX_EN.rknn` 为 **static_shape**（固定 512 帧输出），**每次 `rknn_run` decoder 约 1.8–2.2s**，与文本长短无关；需在 Planner / 合并策略 / 播放层配合，不能靠 TtsWorker 队列技巧单独压到毫秒级。
 
-Do not speak: `SYS>`, user input, vision debug, `<think>`. `TtsTextSanitizer` strips emoji before synth.
+不播报：`SYS>`、用户输入行、视觉 debug、`<think>` 块；合成前由 `TtsTextSanitizer` 去掉 emoji 等不发音字符。
 
-Stack: **MeloTTS `ZH_MIX_EN`** (RKNN + lexicon). Side path to RKLLM, not in vision Pipeline.
+技术选型：板端 **MeloTTS `ZH_MIX_EN`**（encoder/decoder RKNN + `lexicon.txt` / `tokens.txt`）。TTS 与 RKLLM 为旁路，**不进**视觉 Pipeline。
 
-Requires **`gst-launch-1.0`**.
+板端需 **`gst-launch-1.0`**（GStreamer 管道播放）。
 
 ---
 
-## 2. Acceptance criteria
+## 2. 验收标准
 
-### Must pass
+### 必须通过
 
-| Item | Criterion |
-|------|-----------|
-| Static greeting | Text + voice after stable face; clear onset (baseline vs formal) |
-| Formal continuity | Short answers play as one piece; long answers merge PCM per job — **no chunk gaps** |
-| Onset | First 3–4 chars/words **audible** (not screen-only) |
-| English | No Planner **word-level** cuts; short English uses single-shot |
-| Gate | Reject input after Grace timeout |
-| Vision | No `mode:none`; TTS active → skip **yolo infer only**, keep scrfd |
-| Preemption | New `YOU>` → `Cancel()` + `generation_++` |
-| Config | `enabled=false` → no TTS; `skip_static_greeting=true` → no greet |
+| 项 | 标准 |
+|----|------|
+| 静态问候 | 人脸稳定后问候 **文字+语音**；句首清楚（与正式回答对照基准） |
+| 正式回答连续性 | 短答整段连贯；长答 **Melo 分句流式 PushPcm**，播放边产边播，句间无明显吃字 |
+| 句首可辨 | 正式回答开头 3–4 字/词 **可听见**（非仅屏幕有字） |
+| 英文 | 禁止 Planner **单词级**切分；短英文整段 single-shot |
+| 门控 | Grace 超时后拒绝新输入 |
+| 视觉 | 无 `mode:none`；TTS 活跃时 **YOLO 按 `yolo_infer_stride` 降帧**，scrfd 每帧保持 |
+| 抢占 | 新 `YOU>` → `Cancel()` + `generation_++`，仅播最新代际 |
+| 配置 | `enabled=false` 无 TTS；`skip_static_greeting=true` 不播问候 |
 
-### Acceptable trade-offs
+### 可接受取舍
 
-| Item | Note |
+| 项 | 说明 |
+|----|------|
+| 正式回答首响 | **首段 PCM ≈ encoder(~270ms) + decoder(~1900ms)**；静态 RKNN 全图，非 TtsWorker 假流式；Planner 仅影响「何时开始这 2s」 |
+| 长答延迟 | 每句/每 job 一次 decoder 全图；**应合并已到达的 Formal 段**再进 Melo，避免 12 字一段 × 2s |
+| 屏显 vs 耳上 | 终端 `AI>` 流式早于 TTS 首响属正常；**验收以耳朵为准** |
+
+### 不作为单独 Pass 的指标
+
+| 项 | 说明 |
+|----|------|
+| `pcm underrun` 日志 | 仅在下一段仍在合成且队列见底时计数；**underrun=0 不等于听感 Pass** |
+| `first pcm enqueued` 与 `played` 同毫秒 | 表示已写入 gst，不保证句首振幅足够 |
+
+---
+
+## 3. 模块边界
+
+| 模块 | 职责 |
 |------|------|
-| Formal latency | LLM FINISH + serial Melo (~2 s per decoder on short answers) |
-| Long answers | Wait for job merge before play vs underrun from streaming chunks |
-| Screen vs ear | `AI>` streams before TTS; **accept by ear** |
+| `tts_ingress.*` | 过滤 thinking/tag；UTF-8 整理；LLM chunk event 入口 |
+| `tts_planner.*` | 中/英正式回答规划；短答 FINISH 整段；长答流式 emit |
+| `tts_worker.*` | Static / FormalAnswer 文本队列；合成+播放双线程；`generation_` 抢占 |
+| `melotts_session.*` | RKNN；`split_sentence` 或 **single-shot**；`SynthesizeTextStreaming` |
+| `audio_player.*` | 单实例 `gst-launch-1.0`；空闲 priming；`Cancel` 不杀管道 |
+| `tts_text_sanitizer.*` | 去 emoji；`max_speak_chars` 截断 |
+| `lexicon.hpp` / `split.hpp` | 词表；Melo 内部分句 |
 
-### Not sole Pass metrics
+平台关系：
 
-| Item | Note |
-|------|------|
-| `pcm underrun` log | Counted only when queue empty and synth still busy; **underrun=0 ≠ ear Pass** |
-| `enqueued == played` ms | PCM reached gst; does not guarantee loud enough onset |
-
----
-
-## 3. Module boundaries
-
-| Module | Role |
-|--------|------|
-| `tts_ingress.*` | Filter thinking/tags; UTF-8; LLM chunk events |
-| `tts_planner.*` | zh/en planning; short-answer FINISH defer; long-answer stream emit |
-| `tts_worker.*` | Static / FormalAnswer queues; synth + play threads; `generation_` |
-| `melotts_session.*` | RKNN; `split_sentence` or **single-shot**; streaming callbacks |
-| `audio_player.*` | Single gst pipe; idle priming; `Cancel` keeps pipe |
-| `tts_text_sanitizer.*` | Strip emoji; `max_speak_chars` |
-| `lexicon.hpp` / `split.hpp` | Lexicon; Melo internal split |
-
-Platform:
-
-- **LLM**: `OnLlmChunk` → main `PollDeferred` → Ingress/Planner → `EnqueueFormalAnswer`.
-- **Greeting**: `SetBannerLine` → **`PlayText` (Static)** — no Planner; same chain as short formal.
-- **Preemption**: `SubmitPrompt` → **`Cancel()`** (clear queue + `generation_++`, **keep** gst).
-- **Vision**: Skip yolo infer when TTS active during face dialogue.
+- **LLM**：`OnLlmChunk` 投递事件 → 主线程 `PollDeferred` → Ingress/Planner → `EnqueueFormalAnswer`。
+- **问候**：`LlmGreeting::SetBannerLine` → **`PlayText`（Static）**，不经 Planner，与短答 Formal 路径对齐。
+- **抢占**：`SubmitPrompt` → **`TtsWorker::Cancel()`**（清队列 + `generation_++`，**不**杀 gst）。
+- **视觉**：TTS 活跃期 YOLO 降帧（`ShouldRunSlotInference("yolo", frame_id)` + `yolo_infer_stride`），scrfd 不受影响。
 
 ---
 
-## 4. Data flow
+## 4. 数据流
 
 ```text
-[Greeting] stable face
-  → SetBannerLine → PlayText (Static) → Melo → PushPcm(Static) → PlaybackLoop → gst
+【问候】人脸稳定
+  → SetBannerLine(问候, is_final)
+  → PlayText → TextJobKind::Static
+  → Melo（single-shot 或分句）→ PushPcmChunk(Static) → PlaybackLoop → gst
 
-[Formal] YOU> accepted
-  → SubmitPrompt → Cancel()
-  → rkllm_run → OnLlmChunk → Ingress → Planner
-       · ≤ short_answer_max_chars: Feed no emit, FINISH flush whole text
-       · longer: stream emit by zh/en + fallback_timeout_ms
+【正式回答】YOU> accepted
+  → SubmitPrompt → TtsWorker::Cancel()
+  → rkllm_run → OnLlmChunk
+  → TtsIngress → TtsPlanner
+       · 累计 ≤ short_answer_max_chars：Feed 不 emit，FINISH 整段 Flush
+       · 更长：按 zh/en 阈值 + fallback_timeout_ms 流式 emit
   → EnqueueFormalAnswer
-       · ≤ single_shot_max_chars: enqueue as Static (same as PlayText)
-       · longer: FormalAnswer
+       · ≤ single_shot_max_chars：入队为 Static（与 PlayText 同链）
+       · 更长：FormalAnswer
   → SynthesizeLoop
-       · Static / short formal: trim absolute silence → PushPcm; Melo single-shot when short
-       · long formal: merge PCM in job → one PushPcm
-  → PlaybackLoop (play when queue non-empty) → AudioPlayer (idle prime) → gst
+       · Static / 短 Formal：逐 Melo 句 → trim → PushPcm（短答 Melo 走 single-shot）
+       · 长 Formal：job 内多句 PCM **合并一块** → 一次 PushPcm
+  → PlaybackLoop（pcm_queue 非空即播）→ AudioPlayer（空闲 priming）→ gst
 ```
 
 ---
 
-## 5. Static greeting vs formal answer
+## 5. Static 问候 vs Formal 正式回答
 
-| | `PlayText` greeting | `EnqueueFormalAnswer` |
-|--|---------------------|------------------------|
-| Trigger | Stable face, banner + TTS together | Planner segments after LLM |
-| Queue kind | Always Static | Short → **Static**; long → FormalAnswer |
-| Synth | Streaming; `TrimAbsoluteLeadingSilence` only | Short = Static; long = merge in job |
-| Before play | No `Cancel` | **`Cancel()` on SubmitPrompt** |
+| | 静态问候 `PlayText` | 正式回答 `EnqueueFormalAnswer` |
+|--|---------------------|--------------------------------|
+| 触发 | 人脸稳定，`SetBannerLine` 同时入 TTS | LLM FINISH/流式 Planner 段 |
+| 入队类型 | 始终 `TextJobKind::Static` | 短答 **Static**；长答 FormalAnswer |
+| 合成 | `SynthesizeTextStreaming`；仅 `TrimAbsoluteLeadingSilence` | 短答同 Static；长答 job 内 merge |
+| PCM 种类 | `PcmJobKind::Static` | Static 或 `PcmJobKind::Formal` |
+| 前置 | 无 `Cancel` | **`SubmitPrompt` 先 `Cancel()`** |
 
-**Board debug lessons**:
+**板端排障结论**（2025 对话迭代）：
 
-- Greeting OK + formal onset missing → **Static vs Formal path**, not “Melo always weak”.
-- After `Cancel()`, long LLM gap with **no gst writes** → next `PlayPcm` may **lose PCM head** → **idle priming** (≥300 ms gap, ~100 ms discardable silence). Log: `AudioPlayer: primed stream`.
-- **RMS/peak trim on merged PCM** deleted weak first sentence when second was louder — **forbidden**.
+- 问候正常、正式句首听不见时，**首要怀疑 Formal 与 Static 路径差异**，而非「Melo 模型天生句首弱」。
+- `Cancel()` 后 LLM 推理期间 gst **长时间无写入**，下次 `PlayPcm` 可能 **吞掉 PCM 头** → `audio_player` 对空闲 ≥300ms 做 **priming**（可丢弃静音）。
+- 对合并 PCM 做 **RMS/峰值句首裁剪** 曾误删整句（弱起音第一句 + 强起音第二句）→ **禁止**对 merge 后整段做 RMS trim。
 
 ---
 
 ## 6. TtsIngress / TtsTextSanitizer
 
-- Ingress: strip thinking; UTF-8 safe; no hard time slice.
-- Sanitizer: strip **4-byte UTF-8 emoji**; truncate by `max_speak_chars`.
+- Ingress：过滤 `<think>`；UTF-8 边界；**不做**时间硬切。
+- Sanitizer：去掉 **UTF-8 四字节 emoji** 等不发音字符；`max_speak_chars` 截断。
 
 ---
 
 ## 7. TtsPlanner
 
-`Feed` → `TryEmitSegments`; `FINISH` → `Flush`.
+流式 `Feed` → `TryEmitSegments`；`FINISH` → `Flush` 尾段。
 
-| Lang | Policy |
-|------|--------|
-| Chinese | Sentence first; `zh_max_chars` or `zh_min_chars` + `fallback_timeout_ms` |
-| English | **No** word-level emit |
+| 语言 | 策略 |
+|------|------|
+| 中文 | 句界优先；`zh_max_chars` 或 `zh_min_chars` + `fallback_timeout_ms` |
+| 英文 | **禁止**单词级 emit；`en_max_words` 或 `en_min_words` + fallback |
 
-**Short-answer defer** (`short_answer_max_chars`, default 96): while pending ≤ threshold, **Feed does not emit**; whole text on **FINISH** only — avoids 800 ms mid-stream splits on short replies.
+**短答 defer**（`short_answer_max_chars`，默认 96）：
 
-Long answers stream; `CoalesceFormalAnswerLocked` merges adjacent Formal jobs before synth.
+- `pending_` 累计字数 ≤ 阈值时 **`Feed` 不 emit**，等 **FINISH 一次性**下发整段。
+- 避免 800ms 硬切把一句短答拆成多 job、多次 decoder、边播边产 underrun。
 
----
-
-## 8. Melo synthesis
-
-| Condition | Behavior |
-|-----------|----------|
-| `utf8_strlen(text) ≤ single_shot_max_chars` (96) | One `SynthesizeOneSentenceUnlocked`, **no** `split_sentence` |
-| Longer | `split_sentence` → serial decoders |
-
-Limits:
-
-- ~1.6–2.2 s per decoder; serial multi-sentence.
-- Text over `PREDICTED_LENGTHS_MAX` **truncates tail** — do not single-shot overlong text.
+长答仍流式 emit；`TtsWorker::CoalesceFormalAnswerLocked` 在合成前再合并相邻 Formal 块。
 
 ---
 
-## 9. TtsWorker playback
+## 8. Melo 合成策略
 
-Two threads: `SynthesizeLoop` + `PlaybackLoop`.
+| 条件 | 行为 |
+|------|------|
+| `utf8_strlen(text) ≤ single_shot_max_chars`（默认 96） | **整段一次** `SynthesizeOneSentenceUnlocked`，不调用 `split_sentence` |
+| 更长 | `split_sentence(text, split_min_chars, language)` 多句串行 decoder |
 
-| Case | Synth | Play |
-|------|-------|------|
-| Static / short formal | single-shot or split; **absolute silence trim only** | play when `pcm_queue` non-empty |
-| Long formal | merge chunks in job → one PushPcm | same |
+硬约束：
 
-**Do not** (reverted failures):
-
-- Formal streaming multiple PCM chunks (underrun / eaten words);
-- RMS trim on merged PCM;
-- unbounded trim / whole long answer single-shot over model limit.
-
-**Onset trim**: `TrimAbsoluteLeadingSilence` removes near-zero samples only (`<5e-5`), 10 ms pad.
+- 单次 decoder ~1.6–2.2s；多句 **只能串行**（单合成线程 + session 锁）。
+- 超过 `PREDICTED_LENGTHS_MAX` 会 **截断句尾**（log：`predicted_lengths_max_real > PREDICTED_LENGTHS_MAX`）→ 禁止对超长文本 single-shot，靠 Planner/Melo 分句。
 
 ---
 
-## 10. AudioPlayer (gst)
+## 9. TtsWorker 播放策略
 
-- Persistent `gst-launch-1.0`; `Cancel` does not kill child.
-- **Cold prime**: ~50 ms silence after new pipe.
-- **Idle prime**: if ≥ **300 ms** since last PCM (typical after `Cancel` + LLM), write ~100 ms silence before real PCM.
+**双线程**：`SynthesizeLoop` + `PlaybackLoop`。
 
----
+| 场景 | 合成 | 播放 |
+|------|------|------|
+| Static / 短 Formal（≤96 字） | single-shot 或分句；句首 **仅裁绝对静音**（`<5e-5`） | `pcm_queue` 非空即播 |
+| 长 Formal | `SynthesizeTextStreaming` 每句回调即 `PushPcmChunk` | `pcm_queue` 非空即播，边产边播 |
 
-## 11. Vision / gate
+**禁止**（曾导致回退的失败改法）：
 
-TTS active + face dialogue → skip yolo infer only; scrfd and Grace/Locked unchanged.
+- 合并后整段 RMS/峰值 `TrimLeadingSilence`（误删弱起音整句）；
+- 无上限 aggressive trim / 整篇长答 single-shot 超模型上限；
+- job 内累积全部 PCM 再一次性 Push（阻塞首响，违背 Melo 流式）。
 
----
+**PCM 句首处理**：`TrimAbsoluteLeadingSilence` 只删近零样本，保留 10ms pad；**不**做弱起音增益（易与 merge trim 叠加出问题）。
 
-## 12. Configuration
-
-See [`default.yaml`](../runtime/config/default.yaml) → `model.tts`.
-
-| Field | Meaning |
-|-------|---------|
-| `single_shot_max_chars` | One decoder if text ≤ this (default 96; ≥ `planner.short_answer_max_chars`) |
-| `planner.short_answer_max_chars` | Defer stream emit; flush on FINISH |
-| `split_min_chars` | Melo internal split for **long** text |
-| `planner.*` | Long-answer stream thresholds |
+**代际统计**：`first pcm enqueued/played`、`underrun`（仅 pipeline pending 且队列空时）。
 
 ---
 
-## 13. Logs and troubleshooting
+## 10. AudioPlayer（gst）
 
-| Log | Meaning |
-|-----|---------|
-| `first pcm enqueued/played in X ms` | Includes serial Melo time |
-| `pcm underrun #N` | Queue empty while synth pending |
-| `AudioPlayer: primed stream` | Idle priming before real PCM |
-| Multiple `inference_decoder_model` | Text over single-shot; short reply should be **once** |
-| `predicted_lengths_max_real > PREDICTED_LENGTHS_MAX` | Tail truncated |
-
-### Inaudible opening / only hear latter half
-
-1. Compare **greeting PlayText** vs formal — path / idle priming / `primed stream` log.
-2. **Decoder count** on short reply — should be 1; check `single_shot_max_chars` deployed.
-3. No RMS trim on merge.
-4. Underrun + choppy → need merge-in-job, not stream chunks.
-5. OOV / English lexicon.
-
-### Issue / fix summary
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Mid-sentence gaps | Streaming formal PCM chunks | Merge per job, one PlayPcm |
-| Short answer: silent onset + choppy mid | Planner 800 ms split + stream play | `short_answer_max_chars`; short → Static queue |
-| Inaudible sentence onset | Formal vs Static path; gst idle after `Cancel` | Short → Static; idle priming |
-| Whole sentence gone | RMS trim on merge | Reverted; absolute silence trim only |
-
-Platform: [architecture-and-runtime.md](architecture-and-runtime.md) §8.
+- 单实例 `gst-launch-1.0`：`fdsrc ! queue ! audioconvert ! audioresample ! autoaudiosink`。
+- `Cancel()` **不**终止子进程，保持管道可连续写。
+- **Cold prime**：管道新建后先写 ~50ms 静音。
+- **Idle prime**：距上次 PCM 写入 ≥ **300ms**（典型：`Cancel` + LLM 推理空档）先写 ~100ms 可丢弃静音，再写真实 PCM。log：`AudioPlayer: primed stream (...)`。
 
 ---
 
-*Code wins on conflict; acceptance per §2.*
+## 11. 与视觉 / 门控
+
+TTS 活跃 + 人脸对话 Active/Grace → 跳过 **yolo inference only**；scrfd 与 Grace/Locked **不变**。禁止 TTS QoS 导致 `mode:none` 或关 scrfd。
+
+---
+
+## 12. 配置
+
+见 [`default.yaml`](../runtime/config/default.yaml) → `model.tts`。
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | TTS 总开关 |
+| `skip_static_greeting` | `true` 不播静态问候 |
+| `split_min_chars` | Melo **长文本**内部分句阈值 |
+| `single_shot_max_chars` | 不超过则 **整段一次 decoder**；应 ≥ `planner.short_answer_max_chars` |
+| `planner.short_answer_max_chars` | 短答 FINISH 整段，流式不中途 emit |
+| `planner.zh_min/max_chars`、`en_min/max_words` | 长答流式 emit |
+| `planner.fallback_timeout_ms` | 未达 max 时的超时 emit（长答） |
+| `qos.enable_visual_throttle` | 低水位跳 yolo infer |
+
+---
+
+## 13. 日志与排障
+
+| 日志 | 含义 |
+|------|------|
+| `inference_encoder_model use: X ms` | 单句 encoder RKNN（通常 ~250–320ms） |
+| `inference_decoder_model use: X ms` | **单句 decoder RKNN 全图**（静态模型通常 ~1.8–2.2s，与文本长短无关） |
+| `MeloTtsSession: sentence phones=… pred_frames=…` | 实际音素长与预测帧数（pred_frames 远小于 512 时仍跑满 decoder 图） |
+| `first pcm enqueued/played in X ms` | 首条文本入队 → 首个 PCM（≈ 上述 encoder+decoder 之和） |
+| `AudioPlayer: cold primed stream (2205 …)` | 仅新 gst 管道冷启动；**不应再出现 8820** |
+| `AudioPlayer: idle keepalive started` | 每轮 TTS 只应出现 **1 次**（keepalive 线程常驻，PlayPcm 仅暂停不写） |
+
+### 句首听不见 / 只吃后半句
+
+1. **对照问候**：若 `PlayText` 正常、Formal 不正常 → 查 Static vs Formal 路径、`Cancel` 后 idle priming（是否有 `primed stream` log）。
+2. **decoder 次数**：短答应 1 次；若 2+ 次 → 检查 `single_shot_max_chars` / `short_answer_max_chars` 是否生效、是否重新编译部署。
+3. **禁止** merge 后 RMS 裁剪；仅绝对静音 trim。
+4. **underrun + 吃字**：是否边产边播；长/job 内应 **merge 再播**。
+5. **OOV / 英文**：lexicon 字母回退。
+
+### 曾出现的问题与修复摘要
+
+| 现象 | 根因 | 修复 |
+|------|------|------|
+| 句间吃字、underrun | Formal 边产边播多块 PCM | job 内 merge，一次 PlayPcm |
+| 短答句首无声音 + 中间吃字 | Planner 800ms 切碎 + 边播 | `short_answer_max_chars` defer；短答 Static 入队 |
+| 句首文字听不见 | Formal 路径与 Static 不一致；`Cancel` 后 gst 空闲 | 短答 Static 入队；idle priming |
+| 整句被裁没 | merge 后 RMS 找起音裁到第二句 | 已回退；仅 per-chunk 绝对静音 trim |
+
+平台摘要：[architecture-and-runtime.md](architecture-and-runtime.md) §8。
+
+---
+
+*若与代码不一致，以 `runtime/` 为准；验收以本文 §2 为准。*

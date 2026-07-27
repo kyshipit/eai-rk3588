@@ -1,77 +1,77 @@
-Language: **English** | [中文](adapters_CN.md)
+Language: **中文** | [English](adapters_EN.md)
 
-# Adapters overview
+# 适配器说明
 
-Quick reference for vision and logic adapters; see topic docs for detail.
-
----
-
-## YOLO (`adapters/yolo/`)
-
-- ALIENTEK YOLOv5 three-head RKNN (`output num: 3`, `dims[1]=255`).
-- Postprocess: `yolo_postprocess.cpp` decodes `output[0..2]` in a fixed loop.
-- Troubleshooting: [troubleshooting.md](troubleshooting.md) § Vision models.
+视觉与逻辑适配器速览；细节见各专题文档。
 
 ---
 
-## SCRFD (`adapters/scrfd/`)
+## YOLO（`adapters/yolo/`）
 
-- Nine outputs (`score_*` / `bbox_*` / `kps_*`), grouped layout.
-- Postprocess: `ResolveScrfdHeadOutputs` in `scrfd_postprocess.cpp`.
-- Troubleshooting: [troubleshooting.md](troubleshooting.md) § Vision models.
+- 正点原子 YOLOv5 三头 RKNN（`output num: 3`，`dims[1]=255`）。
+- 后处理：`yolo_postprocess.cpp` 固定解码 `output[0..2]`。
+- 排障见 [troubleshooting.md](troubleshooting.md) § 视觉模型排障。
 
 ---
 
-## LLM (`adapters/llm/`)
+## SCRFD（`adapters/scrfd/`）
 
-Same tree level as `adapters/yolo` and `adapters/scrfd`, but **does not** implement per-frame `IModelAdapter` inference.
+- 9 路输出（`score_*` / `bbox_*` / `kps_*`），分组布局。
+- 后处理：`scrfd_postprocess.cpp` 中 `ResolveScrfdHeadOutputs`。
+- 排障见 [troubleshooting.md](troubleshooting.md) § 视觉模型排障。
 
-| File | Role |
+---
+
+## LLM（`adapters/llm/`）
+
+与 `adapters/yolo`、`adapters/scrfd` 同级，但 **不** 实现 `IModelAdapter` 每帧推理。
+
+| 文件 | 职责 |
 |------|------|
-| `rkllm_session.*` | `rkllm_init` / **sync `rkllm_run`** / `rkllm_abort` / `rkllm_destroy`; NORMAL callback writes stdout |
-| `llm_worker.*` | Async load; `infer_thread_` runs `RunPromptSync`; `OnLlmChunk` posts TTS chunk events; main thread `PollDeferred` |
+| `rkllm_session.*` | `rkllm_init` / **`rkllm_run`（同步）** / `rkllm_abort` / `rkllm_destroy`；回调 NORMAL 直写 stdout |
+| `llm_worker.*` | 异步加载；`infer_thread_` 跑 `RunPromptSync`；`OnLlmChunk` 投递 TTS chunk event；主线程 `PollDeferred` 处理 |
 
-Config: `model.llm.*`. Integration: [llm-model-coordinator.md](llm-model-coordinator.md).
+配置：`model.llm.*`。集成见 [llm-model-coordinator.md](llm-model-coordinator.md)。
 
-**Two output paths:**
+**两条输出路径：**
 
-- **User dialogue**: `SubmitPrompt` → `rkllm_run` → streaming `AI>` (thinking shown) → chunk events → TTS.
-- **Auto greeting**: `LlmGreeting` → `SetBannerLine` (static yaml); no RKLLM.
+- **用户对话**：`SubmitPrompt` → `rkllm_run` → 流式 `AI>`（含 thinking 显示）→ chunk event → TTS。
+- **自动问候**：`LlmGreeting` → `SetBannerLine`（静态 yaml）；不经 RKLLM。
 
 ---
 
-## TTS / MeloTTS (`voice/` + `adapters/melotts/`)
+## TTS / MeloTTS（`voice/` + `adapters/melotts/`）
 
-### Purpose
+### 作用
 
-Synthesize **speakable `AI>` text** to audio (44100 Hz):
+将 **`AI>` 可播正文** 合成为语音（44100Hz）：
 
-- Static greeting (`SetBannerLine` → `PlayText`)
-- Formal answer after `YOU>` (`VoiceReplyBridge` → `TtsPlanner` → `EnqueueFormalAnswer`; streaming PCM per sentence)
+- 静态问候（`SetBannerLine` → `PlayText`）
+- `YOU>` 后正式回答（`VoiceReplyBridge` → `TtsPlanner` → `EnqueueFormalAnswer`；短答 Static，长答分句流式 PushPcm）
 
-Thinking visible on terminal; **not** sent to TTS.
+终端可见 thinking；**不进入 TTS**。
 
-### Modules
+### 模块
 
-| File | Role |
+| 文件 | 职责 |
 |------|------|
-| `voice/tts_ingress.*` | Filter thinking/tags; normalize UTF-8 input |
-| `voice/tts_planner.*` | Stream-plan formal answer segments; zh/en emit thresholds |
+| `voice/tts_ingress.*` | thinking/tag 过滤；UTF-8 输入整理 |
+| `voice/tts_planner.*` | 流式规划正式回答片段；中/英 emit 阈值 |
 | `voice/voice_reply_bridge.*` | LLM chunk → Ingress/Planner → TtsWorker |
-| `voice/tts_worker.*` | Static / FormalAnswer; `generation_` preemption |
-| `adapters/melotts/melotts_session.*` | RKNN synth; `SynthesizeTextStreaming` sentence-level PCM |
-| `voice/audio_player.*` | Persistent `gst-launch-1.0` pipe writing float32 PCM |
-| `voice/tts_text_sanitizer.*` | UTF-8 char `max_speak_chars` truncation |
-| `adapters/melotts/lexicon.hpp` / `split.hpp` | Lexicon; sentence split |
+| `voice/tts_worker.*` | Static / FormalAnswer；`generation_` 抢占 |
+| `adapters/melotts/melotts_session.*` | RKNN 合成；`SynthesizeTextStreaming` 句级增量 PCM |
+| `voice/audio_player.*` | 常驻 `gst-launch-1.0` 管道写 float32 PCM |
+| `voice/tts_text_sanitizer.*` | `max_speak_chars` 按 UTF-8 字符截断 |
+| `adapters/melotts/lexicon.hpp` / `split.hpp` | 词表；分句 |
 
-### Models and config
+### 模型与配置
 
-On board under `./model/`: `encoder-ZH_MIX_EN.rknn`, `decoder-ZH_MIX_EN.rknn`, `lexicon.txt`, `tokens.txt`.
+板端 `./model/`：`encoder-ZH_MIX_EN.rknn`、`decoder-ZH_MIX_EN.rknn`、`lexicon.txt`、`tokens.txt`。
 
-YAML: `model.tts.*` (parallel to `model.llm`; startup still requires `model.llm.enabled: true`).
+YAML：`model.tts.*`（与 `model.llm` 并列；启动仍要求 `model.llm.enabled: true`）。
 
-### Playback
+### 播放
 
-`AudioPlayer` uses a persistent **`gst-launch-1.0`** pipe to stdin with float32 PCM (**not** per-clip `gst-play` on wav files).
+`AudioPlayer` 使用常驻 **`gst-launch-1.0`** 管道，向 stdin 写入 float32 PCM（**非** 每段 `gst-play` 播 wav 文件）。
 
-Design and acceptance: [tts-melotts.md](tts-melotts.md).
+设计与验收见 [tts-melotts.md](tts-melotts.md)。

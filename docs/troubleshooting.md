@@ -1,28 +1,28 @@
-Language: **English** | [中文](troubleshooting_CN.md)
+Language: **中文** | [English](troubleshooting_EN.md)
 
-# Runtime troubleshooting
+# 运行排障
 
-> Common on-board issues and decision paths. Platform architecture: [architecture-and-runtime.md](architecture-and-runtime.md); adapters: [adapters.md](adapters.md).
+> 板端运行常见问题与排查决策。平台架构见 [architecture-and-runtime.md](architecture-and-runtime.md)；适配器细节见 [adapters.md](adapters.md)。
 
 ---
 
-## Vision models
+## 视觉模型排障
 
-### YOLO: zero detections
+### YOLO 0 框
 
-**Typical signs**: Logs stay at `det_lines=0`, `person_present=0`; person→scrfd never triggers.
+**典型现象**：日志长期 `det_lines=0`、`person_present=0`，无法触发 person→scrfd 切换。
 
-**Check in order**:
+**优先排查**（按顺序）：
 
-1. **Config paths**: Init logs `model_path=` / `path=` vs the yaml you pass on the command line.
-2. **Output topology**: YOLO must be **3** fused heads (`output num: 3`, `dims[1]=255`). Nine tensors `score_8/bbox_8/kps_*` mean SCRFD topology was loaded — see below.
-3. **Postprocess**: `yolo_postprocess.cpp` must decode `output[i]` for `i = 0..2`; Init runs `validate_yolov5_model_io` for `n_output==3` and first tensor `dims[1]==255`.
+1. **配置路径**：看 Init 日志中的 `model_path=` / `path=`，对照正在使用的 yaml（命令行传入的 config）。
+2. **输出拓扑**：YOLO 应为 **3 路**融合头（`output num: 3`，`dims[1]=255`）；若出现 9 路 `score_8/bbox_8/kps_*`，说明加载的是 SCRFD 拓扑 → 见下一节。
+3. **后处理**：`yolo_postprocess.cpp` 须固定 `for (i = 0; i < 3; i++)` 解码 `output[i]`；Init 时 `validate_yolov5_model_io` 校验 `n_output==3` 且首路 `dims[1]==255`。
 
-**Do not**: Assume “two different rknn files” from md5 alone while ignoring a wrong `model.yolo.path`; do not add 9-head SCRFD decoding to YOLO.
+**不要**：仅凭 md5 断言「两颗不同 rknn」而忽略 `model.yolo.path` 配错；不要对 YOLO 编写 9 路 SCRFD 解码。
 
-### YoloAdapter reports output num: 9
+### YoloAdapter 打印 output num: 9
 
-**Typical log**:
+**典型日志**：
 
 ```text
 output tensors:
@@ -31,106 +31,122 @@ output tensors:
 YoloAdapter: unsupported RKNN outputs=9 (need 3 fused heads), path=./model/scrfd.rknn
 ```
 
-**Conclusion**: `model.yolo.path` **points at `scrfd.rknn`** (or is swapped with `model.scrfd.path`). Nine `score_8` tensors are SCRFD heads, not YOLOv5.
+**结论**：`model.yolo.path` **误指向 `scrfd.rknn`**（或与 `model.scrfd.path` 写反）。9 路 `score_8` 是 SCRFD 特征，不是 YOLOv5 三头。
 
-**Fix**:
+**修复**：确认 yaml 中：
 
 ```yaml
 model.yolo.path: ./model/yolov5.rknn
 model.scrfd.path: ./model/scrfd.rknn
 ```
 
-With `infer_threads: 3`, three identical Init log blocks are normal.
+`infer_threads: 3` 时 Init 日志重复 3 遍属正常。
 
-### SCRFD: screen full of boxes
+### SCRFD 满屏框
 
-**Typical sign**: Dense unstable boxes after scrfd enables.
+**典型现象**：切换 scrfd 后检测框密集乱飞。
 
-**Root cause**: Nine output indices do not match postprocess layout. On this board the usual order is **grouped**: three scores, then three bboxes, then three kps (not interleaved per stride).
+**根因**：9 路输出索引与后处理布局不符。本板端实际顺序多为 **分组布局**：先 3 个 score，再 3 个 bbox，再 3 个 kps（非 score/bbox/kps 交错）。
 
-**Checks**:
+**排查**：
 
-1. `ResolveScrfdHeadOutputs` in `scrfd_postprocess.cpp` matches names `score_{stride}` / `bbox_{stride}` / `kps_{stride}`.
-2. If still too many boxes, raise `model.scrfd.conf_threshold_percent` (e.g. 65–75).
-3. **Do not** change YOLO to 9-head decoding “for SCRFD”.
+1. 确认 `scrfd_postprocess.cpp` 中 `ResolveScrfdHeadOutputs` 按名称 `score_{stride}` / `bbox_{stride}` / `kps_{stride}` 匹配。
+2. 框仍偏多时，调高 `model.scrfd.conf_threshold_percent`（如 65~75）。
+3. **不要**再改 YOLO 的 9 路解码来「兼容」SCRFD。
 
-### Working directory and model paths
+### 启动目录和模型路径
 
-- Relative `./model/...` depends on **cwd at launch**; from `install/...` compare `install/model/` with the tree `model/`.
-- Use `model.yolo.path` / `model.scrfd.path`; legacy top-level `model.path` is removed.
-- Before push, from repo root: `python3 tools/check_config.py` (yaml structure) and `./tools/check_models.sh` (model files; use `--cwd` matching the board launch directory).
-- Optional: `YoloAdapter: model realpath=...`, file size, RKNN api/driver version in logs.
+- 相对路径 `./model/...` 依赖**启动时的当前工作目录**；从 `install/...` 启动时核对 `install/model/` 与源码树 `model/` 是否一致。
+- 配置项已统一为 `model.yolo.path` / `model.scrfd.path`；旧版顶层 `model.path` 已废弃。
+- push 前可在仓库根运行 `python3 tools/check_config.py`（yaml 结构）与 `./tools/check_models.sh`（模型文件；`--cwd` 指向与板端相同的启动目录）。
+- 可选：查看 `YoloAdapter: model realpath=...`、文件大小、RKNN api/drv 版本。
 
-### On-board checklist
+### 板端验证 Checklist
 
-1. **Startup**: `YoloAdapter` Init shows `model_path=./model/yolov5.rknn`; `output num: 3`, `out0` `dims[1]=255`.
-2. **YOLO phase**: Periodic `det_lines>0`; COCO boxes on screen; `person` can enable scrfd.
-3. **SCRFD phase**: Reasonable face count, not full screen.
-4. **Exit**: Single `Ctrl+C` exits cleanly.
-5. **Still 9 × `score_8`**: Check `path=` is not `scrfd.rknn`.
-
----
-
-## Exit and crashes
-
-### Ctrl+C does not exit
-
-**Typical sign**: Repeated `Signal received, request stop` but process hangs.
-
-**Root cause**: `PreprocessLoop` / `InferenceLoop` block forever on full `BoundedQueue::Push`; after `Stop()` the main thread may leave the display loop while preprocess still blocks on `Push`.
-
-**Checks**:
-
-- `pipeline.cpp` uses `TryPush(..., 100ms)` and checks `ShouldStop()` on timeout.
-- `Stop()` posts `frame_id=-1` quit sentinels to `infer_queues_` and `post_queue_`.
-- If LLM thread blocks: `LlmWorker::Shutdown` and `rkllm_abort`.
-
-### ESC hang on exit
-
-- Main thread runs OpenCV and stdin; blocked `rkllm_run` or display can make ESC unresponsive.
-- `Pipeline::Stop()` order: `AbortActiveGeneration` → release camera → quit sentinels → `JoinWorkerThreads` → `display_.Shutdown()`.
-
-### SIGSEGV on exit
-
-**Typical sign**: Segfault after long run or on ESC / Ctrl+C.
-
-**Debug**:
-
-1. `setvbuf` + SIGSEGV handler in `app/main.cc` for backtrace.
-2. Safe teardown order for GUI, camera, and workers (no display/worker races).
-3. `yolo_adapter.cpp`: `is_quant` / `want_float` must match model outputs; no uninitialized `rknn_output`.
-
-### Verifying a fix
-
-1. Build: `cd runtime && ./build-linux.sh`.
-2. Run: no SIGSEGV backtrace; ESC and Ctrl+C exit; periodic FPS (e.g. every 100 frames).
-3. Regression: long run; multiple start/stop cycles.
-
-### Current shutdown sequence (matches code)
-
-1. `Pipeline::Stop()`: `LlmGreeting::AbortActiveGeneration`, `camera_.Release`, `frame_id=-1` sentinels.
-2. Workers: `TryPush` timeout sees `ShouldStop()` and exits.
-3. Before `main` returns: `tts_worker->Shutdown()`, `llm_worker->Shutdown()` (join infer thread, `rkllm_destroy`).
-4. `display_.Shutdown()` closes OpenCV windows.
+1. **启动日志**：`YoloAdapter` Init 显示 `model_path=./model/yolov5.rknn`；`output num: 3`，`out0` 的 `dims[1]=255`。
+2. **YOLO 阶段**：周期性 `det_lines>0`；画面有 COCO 检测框；`person` 可触发 scrfd 切换。
+3. **SCRFD 阶段**：人脸框数量合理，非满屏。
+4. **退出**：`Ctrl+C` 一次退出，无反复卡住。
+5. **若仍为 9 路 `score_8`**：先看 `path=` 是否为 `scrfd.rknn`。
 
 ---
 
-## Other issues
+## 退出与崩溃排障
 
-### Missing `.rkllm` or LLM load failure
+### Ctrl+C 不退出
 
-- Vision (YOLO/SCRFD) should work; `LlmWorker` **stat** pre-check in `RequestInitializeAsync` skips `rkllm_init` when missing → vision-only degrade.
-- Terminal: `SYS> 仅视觉模式（对话模型未加载）`; no “input channel ready” or static `AI>` greeting.
-- See [architecture-and-runtime.md](architecture-and-runtime.md) §1, §5 and [llm-model-coordinator.md](llm-model-coordinator.md) §5–§6.
+**典型现象**：多次 `Signal received, request stop`，进程仍不结束。
 
-### Truncated LLM replies
+**根因**：`PreprocessLoop` / `InferenceLoop` 使用 `BoundedQueue::Push`，队列满时无限阻塞；`Stop()` 后主线程已退出显示循环，预处理线程仍卡在 `Push`。
 
-- Check `max_new_tokens` and `max_context_len`; long replies may be truncated → [llm-model-coordinator.md](llm-model-coordinator.md).
+**排查**：
 
-### TTS
+- 确认 `pipeline.cpp` 中任务投递使用 `TryPush(..., 100ms)`，超时后检查 `ShouldStop()`。
+- 确认 `Stop()` 向 `infer_queues_`、`post_queue_` 投递 `frame_id=-1` 退出哨兵。
+- 若 LLM 推理线程阻塞，查 `LlmWorker::Shutdown` 与 `rkllm_abort`。
 
-- Voice UX and TTS debug: [tts-melotts.md](tts-melotts.md) §13.
+### ESC 退出卡住
+
+**排查思路**：
+
+- 主线程负责 OpenCV 显示与 stdin 轮询；若 `rkllm_run` 或显示线程阻塞，ESC 可能无响应。
+- 确认 `Pipeline::Stop()` 顺序：`AbortActiveGeneration` → 释放摄像头 → quit 哨兵 → `JoinWorkerThreads` → `display_.Shutdown()`。
+
+### 退出 SIGSEGV
+
+**典型现象**：运行一段时间或按 ESC / Ctrl+C 退出时偶发段错误。
+
+**定位思路**：
+
+1. **日志与 backtrace**：`app/main.cc` 中 `setvbuf` 禁用缓冲 + SIGSEGV handler，崩溃时打印 backtrace。
+2. **释放顺序**：多线程环境下 GUI（OpenCV）、摄像头与各 worker 须按安全顺序退出；避免显示与 worker 竞态。
+3. **适配器**：`yolo_adapter.cpp` 中 `is_quant` / `want_float` 须与模型输出类型一致；避免未初始化 `rknn_output`。
+
+### 如何判断修复生效
+
+1. **构建**：`cd runtime && ./build-linux.sh`。
+2. **运行**：
+   - 无 SIGSEGV backtrace；
+   - 按 ESC 或 Ctrl+C 能正常退出；
+   - 周期性 FPS 日志（如每 100 帧）。
+3. **回归**：长时间运行、多次启动/退出。
+
+### 当前退出流程（与现码一致）
+
+1. `Pipeline::Stop()`：`LlmGreeting::AbortActiveGeneration`、`camera_.Release`、向队列投递 `frame_id=-1` 哨兵。
+2. Worker 线程：`TryPush` 超时感知 `ShouldStop()` 后退出。
+3. `main` 返回前：`tts_worker->Shutdown()`、`llm_worker->Shutdown()`（join 推理线程、`rkllm_destroy`）。
+4. `display_.Shutdown()` 关闭 OpenCV 窗口。
 
 ---
 
-*Authoritative source: current repository code.*
+## 其他常见问题
+
+### 缺 `.rkllm` 或对话模型加载失败
+
+- 视觉（YOLO/SCRFD）应正常；`LlmWorker` 在 `RequestInitializeAsync` 内 **stat 预检**，缺失则跳过 `rkllm_init`，进入仅视觉降级。
+- 终端：`SYS> 仅视觉模式（对话模型未加载）`；不应再出现「输入通道已就绪」或静态 `AI>` 问候。
+- 详见 [architecture-and-runtime.md](architecture-and-runtime.md) §1、§5、[llm-model-coordinator.md](llm-model-coordinator.md) §5–§6。
+
+### LLM 回答截断
+
+- 查 `max_new_tokens` 与 `max_context_len`，长回答可能被截断 → [llm-model-coordinator.md](llm-model-coordinator.md)。
+
+### TTS 首响 ~2s（不是 TtsWorker 没流式）
+
+对照日志若出现 `encoder ~270ms` + `decoder ~1900ms` → **RKNN 静态 decoder 全图**，与 `PushPcmChunk` 是否逐句无关。
+
+1. **模型**：`decoder-ZH_MIX_EN.rknn` 内嵌 `static_shape`，`attn=[1,512,256]`、`y=[1,1,262144]`，`dynamic_shapes:{}`；**不能**靠 `rknn_set_input_shapes` 缩短单次推理（需重导动态 shape 模型）。
+2. **少跑 decoder**：问候/短答走 `single_shot`（≤ `single_shot_max_chars`）；Formal 合并队列里已到达的同代际段再进 Melo（无 120ms 等待）。
+3. **少吞句首**：合成期 `BeginIdleKeepalive`，避免 `primed stream (8820)` 在首包 PCM 前再灌 200ms 静音。
+4. **Planner**：`zh_min_chars` / `fallback_timeout_ms` 只决定「何时开始第一次 2s 合成」，不能替代 decoder 耗时。
+
+详见 [tts-melotts.md](tts-melotts.md) §13。
+
+### TTS 相关问题（听感）
+
+- 语音对话体验与 TTS 排障见 [tts-melotts.md](tts-melotts.md) §13。
+
+---
+
+*以仓库当前代码为准。*
