@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * voice/tts_worker.h — 异步 MeloTTS 播报：文本合成与播放并行流水线。
  */

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * display/result_overlay.h
  * 将适配器 Postprocess 行文本绘制到帧上。

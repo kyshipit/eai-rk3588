@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * adapters/melotts/melotts_session.h — MeloTTS RKNN 合成会话（encoder/decoder + 词表）。
  */

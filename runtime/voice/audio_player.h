@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * voice/audio_player.h — 单实例持续 PCM 播放器（GStreamer 管道常驻）。
  */

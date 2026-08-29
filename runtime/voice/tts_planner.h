@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * voice/tts_planner.h — 正式回答语言感知规划：中文字符数、英文词数、标点优先。
  */

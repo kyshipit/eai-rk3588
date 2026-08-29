@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * platform/llm_greeting.h — 人脸门控与会话状态机（Locked/Arming/Active/Grace）。
  */

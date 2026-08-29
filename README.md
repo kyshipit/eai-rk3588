@@ -3,6 +3,13 @@
 # EAI-RK3588：基于插件的边缘AI平台
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![OpenCV](https://img.shields.io/badge/OpenCV-green?logo=opencv)
+![Platform](https://img.shields.io/badge/Platform-RK3588-red)
+![YOLO](https://img.shields.io/badge/YOLOv5-111F68?logo=yolo&logoColor=white)
+![TTS](https://img.shields.io/badge/TTS-MeloTTS-blue)
+![SCRFD](https://img.shields.io/badge/SCRFD-FF6F00)
+![RKNN](https://img.shields.io/badge/RKNN-orange)
+![RKLLM](https://img.shields.io/badge/RKLLM-brightgreen)
 
 EAI-RK3588 是为 Rockchip RK3588 设计的可扩展边缘推理平台。通过一份 YAML 配置文件驱动，结合多线程视频流水线与插件化架构，内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成（TTS）。默认应用展示了人脸门控、AI 问候与对话等功能。
 

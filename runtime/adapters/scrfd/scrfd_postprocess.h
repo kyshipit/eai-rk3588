@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * adapters/scrfd/scrfd_postprocess.h — SCRFD 解码 + NMS（对齐 adapters/scrfd/main.py）
  */

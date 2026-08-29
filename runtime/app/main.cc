@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * app/main.cc — 进程入口：读配置、注册适配器、组装各模块并运行 Pipeline。
  */

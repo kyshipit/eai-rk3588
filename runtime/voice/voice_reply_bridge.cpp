@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * voice/voice_reply_bridge.cpp — LLM chunk 到 TTS 正式回答的旁路装配。
  */

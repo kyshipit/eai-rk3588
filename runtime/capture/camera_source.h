@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * capture/camera_source.h
  * V4L2 / OpenCV 摄像头采集（打开、读帧、释放）。

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * engine/thread_pool.cpp
  * 线程池 worker 实现：可选 CPU 亲和性 + 任务队列消费循环。

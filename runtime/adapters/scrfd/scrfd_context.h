@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * adapters/scrfd/scrfd_context.h — SCRFD RKNN 上下文（独立于 YOLO 类型名）
  */

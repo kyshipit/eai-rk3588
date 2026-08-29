@@ -3,6 +3,13 @@
 # EAI-RK3588: Plugin-Based Edge AI Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![OpenCV](https://img.shields.io/badge/OpenCV-green?logo=opencv)
+![Platform](https://img.shields.io/badge/Platform-RK3588-red)
+![YOLO](https://img.shields.io/badge/YOLOv5-111F68?logo=yolo&logoColor=white)
+![TTS](https://img.shields.io/badge/TTS-MeloTTS-blue)
+![SCRFD](https://img.shields.io/badge/SCRFD-FF6F00)
+![RKNN](https://img.shields.io/badge/RKNN-orange)
+![RKLLM](https://img.shields.io/badge/RKLLM-brightgreen)
 
 EAI-RK3588 is an extensible edge inference platform designed for Rockchip RK3588. Driven by a single YAML configuration file, it combines a multi-threaded video pipeline with a plugin-based architecture. It includes built-in YOLO and SCRFD models, and supports local RKLLM dialogue and speech synthesis (TTS). The default application demonstrates face-gated access, AI greetings, and conversational dialogue.
 

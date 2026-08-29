@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * voice/tts_ingress.h — LLM 流式输入整理：过滤 thinking、保留 tag 尾、UTF-8 安全。
  */

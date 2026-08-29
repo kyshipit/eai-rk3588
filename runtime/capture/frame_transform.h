@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+
 /*
  * capture/frame_transform.h
  * 帧旋转与合法性校验（与采集设备无关的图像变换）。
