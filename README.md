@@ -1,6 +1,6 @@
-🌐 语言: **中文** | [English](README_EN.md)
+🌐 Language: **English** | [中文](README.zh.md)
 
-# EAI-RK3588：基于插件的边缘AI平台
+# EAI-RK3588: Plugin-Based Edge AI Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![OpenCV](https://img.shields.io/badge/OpenCV-green?logo=opencv)
@@ -11,139 +11,138 @@
 ![RKNN](https://img.shields.io/badge/RKNN-orange)
 ![RKLLM](https://img.shields.io/badge/RKLLM-brightgreen)
 
-EAI-RK3588 是为 Rockchip RK3588 设计的可扩展边缘推理平台。通过一份 YAML 配置文件驱动，结合多线程视频流水线与插件化架构，内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成（TTS）。默认应用展示了人脸门控、AI 问候与对话等功能。
+EAI-RK3588 is an extensible edge inference platform designed for Rockchip RK3588. Driven by a single YAML configuration file, it combines a multi-threaded video pipeline with a plugin-based architecture. It includes built-in YOLO and SCRFD models, and supports local RKLLM dialogue and speech synthesis (TTS). The default application demonstrates face-gated access, AI greetings, and conversational dialogue.
 
-<video src="https://github.com/user-attachments/assets/9cd2d897-d02b-4f66-a1cf-d374f2e17c5b" controls width="100%"></video>
+<video src="https://github.com/user-attachments/assets/ecccc336-8c3d-47c2-b277-298a9b517630" controls width="100%"></video>
 
 ---
-## 📋 目录
+## 📋 Table of Contents
 
-- [✨ 核心特性](#-核心特性)
-- [🏗️ 架构设计](#️-架构设计)
-- [🚀 快速开始](#-快速开始)
-- [⚙️ 配置说明](#️-配置说明)
-- [📖 文档与代码入口](#-文档与代码入口)
-- [🔧 本地检查工具](#-本地检查工具)
+- [✨ Core Features](#-core-features)
+- [🏗️ Architecture](#️-architecture)
+- [🚀 Quick Start](#-quick-start)
+- [⚙️ Configuration](#️-configuration)
+- [📖 Documentation & Code Entry Points](#-documentation--code-entry-points)
+- [🔧 Local Check Tools](#-local-check-tools)
 - [📄 License](#-license)
 ---
 
-## ✨ 核心特性
+## ✨ Core Features
 
-- **插件化架构**：YOLO、SCRFD、LLM、TTS 均以插件形式实现，按需加载。
+- **Plugin-based architecture**: YOLO, SCRFD, LLM, and TTS are all implemented as plugins, loaded on demand.
 
-- **配置驱动**：所有功能（检测、对话、语音）通过 `default.yaml` 灵活开关。
+- **Configuration-driven**: All features (detection, dialogue, speech) can be toggled flexibly via `default.yaml`.
 
-- **低延迟流水线**：视频帧处理与 LLM/TTS 逻辑分离，保证实时推理性能。
+- **Low-latency pipeline**: Video frame processing is decoupled from LLM/TTS logic, ensuring real-time inference performance.
 
-- **开箱即用的人脸门控场景**：人员检测 → 人脸识别 → 自动问候 → 语音对话，完整端到端流程。
+- **Ready-to-use face-gated scenario**: Person detection → face recognition → automatic greeting → voice conversation — a complete end-to-end pipeline.
 
-- **支持本地大模型**：集成 RKLLM，无需联网即可进行对话推理。
+- **Local LLM support**: Integrates RKLLM for on-device conversational inference without network connectivity.
 
-- **跨平台编译**：提供交叉编译脚本，快速部署到正点原子 RK3588 开发板。
+- **Cross-compilation support**: Cross-compilation scripts are provided for rapid deployment to ALIENTEK RK3588 boards.
 
+## 🏗️ Architecture
 
-## 🏗️ 架构设计
+![Edge AI Runtime Architecture](assets/architecture.svg)
 
-![Edge AI Runtime 架构](assets/architecture_cn.svg)
+> Solid lines: video frames and inference results; dashed lines: YAML and person/face signals. LLM and TTS are logic side paths (`adapters/llm`, `voice/` + `adapters/melotts`), not part of the per-frame `Preprocess→Inference→Postprocess` pipeline.
 
-> 实线：视频帧与推理结果；虚线：YAML 与人体/人脸信号。LLM、TTS 均为逻辑旁路（`adapters/llm`、`voice/` + `adapters/melotts`），不参与每帧 `Preprocess→Inference→Postprocess` 流水线。
+| Layer           | Directory                               | Role                                                 |
+| --------------- | --------------------------------------- | ---------------------------------------------------- |
+| Entry           | `runtime/app/`                          | Reads YAML, starts Pipeline and ModelCoordinator     |
+| Capture/Display | `runtime/capture/`, `runtime/display/`  | Frame capture, rotation, overlays, OpenCV preview    |
+| Engine          | `runtime/engine/`                       | Preprocess → Inference → main-thread display & stdin |
+| Policy          | `runtime/platform/`                     | Scene switching, face gate, auto-greeting logic      |
+| Model Plugins   | `runtime/adapters/`                     | yolo / scrfd / llm / tts plugins, toggled by config  |
 
-| 层       | 目录                                    | 职责                                      |
-| -------- | --------------------------------------- | ----------------------------------------- |
-| 入口     | `runtime/app/`                          | 读取 YAML，启动 Pipeline 与 ModelCoordinator |
-| 采集/显示 | `runtime/capture/`, `runtime/display/`  | 采集帧、旋转、画框、OpenCV 预览           |
-| 引擎     | `runtime/engine/`                       | 预处理 → 推理 → 主线程显示与 stdin 交互   |
-| 策略     | `runtime/platform/`                     | 场景切换、人脸门控、自动问候逻辑          |
-| 模型插件 | `runtime/adapters/`                     | yolo / scrfd / llm / tts 插件，按配置启停 |
+For detailed startup sequence, threading model, and design decisions, see: [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md).
 
-更详细的启动顺序、线程模型与设计决策请参阅：[docs/architecture-and-runtime.md](docs/architecture-and-runtime.md)。
-
-## 🚀 快速开始
+## 🚀 Quick Start
 
 ```bash
-# 1. 进入 runtime 目录
+# 1. Enter the runtime directory
 cd runtime
 
-# 2. 执行交叉编译脚本（使用正点原子工具链）
+# 2. Run the cross-compilation script (using ALIENTEK toolchain)
 ./build-linux.sh
 
-# 3. 将编译产物推送到开发板（替换 <target_directory> 为板端目录，如 /userdata）
+# 3. Push the build artifact to the board (replace <target_directory> with the board path, e.g. /userdata)
 adb push install/rk3588_linux_aarch64/rknn_eai_rk3588 /userdata/aidemo
 
-# 4. 进入板端目录
+# 4. Enter the board directory and run
 cd /userdata/aidemo/rknn_eai_rk3588
 ./edgeai_app
 ```
 
-## ⚙️ 配置说明
+## ⚙️ Configuration
 
-关键配置项（位于 `config/default.yaml`）：
+Key configuration items (located in `config/default.yaml`):
 
-| 配置项 | 说明 |
-| ------ | ---- |
-| `model.llm.enabled` | 是否启用 LLM 对话链路；若 `false` 或模型缺失，仅运行视觉检测 |
-| `model.tts.enabled` | 是否启用 TTS 语音播报（需 `model.llm.enabled` 为 `true`） |
-| `model.tts.skip_static_greeting` | `true` 时，人脸稳定后不播报静态问候语（只播报后续对话） |
-| `model.yolo.path` | YOLO 模型文件路径（相对于可执行文件） |
-| `model.scrfd.path` | SCRFD 人脸检测模型路径 |
-| `model.llm.path` | RKLLM 模型文件路径 |
-| `model.tts.encoder_path` / `decoder_path` | TTS 编码器/解码器 RKNN 路径 |
-| `model.tts.lexicon_path` / `tokens_path` | TTS 词表文件路径 |
-| `capture.device` | 摄像头设备节点（如 `/dev/video0`） |
-| `display.window_name` | 预览窗口标题 |
+| Config Item | Description |
+| ----------- | ----------- |
+| `model.llm.enabled` | Enable LLM dialogue pipeline; if `false` or model missing, vision-only mode |
+| `model.tts.enabled` | Enable TTS speech output (requires `model.llm.enabled` to be `true`) |
+| `model.tts.skip_static_greeting` | When `true`, skip the static greeting TTS after face stabilization |
+| `model.yolo.path` | Path to YOLO model file (relative to executable) |
+| `model.scrfd.path` | Path to SCRFD face detection model |
+| `model.llm.path` | Path to RKLLM model file |
+| `model.tts.encoder_path` / `decoder_path` | TTS encoder/decoder RKNN paths |
+| `model.tts.lexicon_path` / `tokens_path` | TTS lexicon file paths |
+| `capture.device` | Camera device node (e.g., `/dev/video0`) |
+| `display.window_name` | Preview window title |
 
-完整字段及注释请参考 `runtime/config/default.yaml`。
-
----
-
-## 📖 文档与代码入口
-
-| 文档/用途 | 说明 |
-| --------- | ---- |
-| [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md) | 启动顺序、流水线、槽位与平台设计详情 |
-| [docs/tts-melotts.md](docs/tts-melotts.md) | TTS 实现细节与验收指南 |
-| [docs/llm-model-coordinator.md](docs/llm-model-coordinator.md) | RKLLM 协调、门控逻辑与终端交互 UX |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | 常见问题排查（无框、路径错误、退出崩溃等） |
-| [docs/adapters.md](docs/adapters.md) | 各插件模块（yolo/scrfd/llm/tts）的文件职责说明 |
-
-**代码入口**：
-
-| 用途 | 路径 |
-| ---- | ---- |
-| 主程序入口 | `runtime/app/main.cc` |
-| 每帧处理流水线 | `runtime/engine/pipeline.cpp` |
-| 场景协调器 | `runtime/platform/model_coordinator.cpp` |
-| 人脸门控与问候逻辑 | `runtime/platform/llm_greeting.cpp` |
-| RKLLM 插件 | `runtime/adapters/llm/` |
-| TTS 实现 | `runtime/voice/` + `runtime/adapters/melotts/` |
-| 默认配置文件 | `runtime/config/default.yaml` |
+For the full list of fields and comments, see `runtime/config/default.yaml`.
 
 ---
 
-## 🔧 本地检查工具
+## 📖 Documentation & Code Entry Points
 
-在推送至板端前，可在仓库根目录运行以下脚本进行预检：
+| Document | Description |
+| -------- | ----------- |
+| [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md) | Startup sequence, pipeline, slots, and platform design details |
+| [docs/tts-melotts.md](docs/tts-melotts.md) | TTS implementation details and acceptance guide |
+| [docs/llm-model-coordinator.md](docs/llm-model-coordinator.md) | RKLLM coordination, gating logic, and terminal interaction UX |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Troubleshooting common issues (no boxes, path errors, exit/crash, etc.) |
+| [docs/adapters.md](docs/adapters.md) | File roles for each plugin module (yolo/scrfd/llm/tts) |
+
+**Code Entry Points**:
+
+| Purpose | Path |
+| ------- | ---- |
+| Main entry point | `runtime/app/main.cc` |
+| Per-frame pipeline | `runtime/engine/pipeline.cpp` |
+| Scene coordinator | `runtime/platform/model_coordinator.cpp` |
+| Face gate & greeting logic | `runtime/platform/llm_greeting.cpp` |
+| RKLLM plugin | `runtime/adapters/llm/` |
+| TTS implementation | `runtime/voice/` + `runtime/adapters/melotts/` |
+| Default configuration | `runtime/config/default.yaml` |
+
+---
+
+## 🔧 Local Check Tools
+
+Before pushing to the board, run the following scripts from the repository root for pre-flight checks:
 
 ```bash
-# 检查 default.yaml 字段类型与范围（不检查文件存在性）
+# Validate default.yaml field types and ranges (does not check file existence)
 python3 tools/check_config.py
 
-# 检查 model/ 下各模型文件是否存在（若缺少 .rkllm 仅给出警告）
+# Check if model files under model/ exist (missing .rkllm only triggers a warning)
 ./tools/check_models.sh
 ```
 
-## 仓库结构
+## Repository Structure
 
 ```text
 edgeai_platform/
-├── model/          # yolov5.rknn、scrfd.rknn、.rkllm、TTS encoder/decoder RKNN、lexicon.txt、tokens.txt
-├── docs/           # 平台文档
-├── assets/         # 架构图等
+├── model/          # yolov5.rknn, scrfd.rknn, .rkllm, TTS encoder/decoder RKNN, lexicon.txt, tokens.txt
+├── docs/           # platform documentation
+├── assets/         # architecture diagrams, etc.
 ├── runtime/
 │   ├── app/ engine/ platform/ capture/ display/
 │   ├── adapters/yolo|scrfd|llm|tts/
 │   └── config/default.yaml
-└── tools/          # 开发/集成辅助（配置校验、模型文件检查等），不参与板端运行
+└── tools/          # dev/integration helpers (config & model checks, etc.), not used on board
 ```
 
 ## 📄 License

@@ -1,52 +1,52 @@
-Language: **中文** | [English](llm-model-coordinator_EN.md)
+Language: **English** | [中文](llm-model-coordinator.zh.md)
 
-# LLM 与 ModelCoordinator 集成
+# LLM and ModelCoordinator integration
 
-## 读者须知
+## For readers
 
-- 本文说明 RKLLM（Qwen2.5 等 `.rkllm`）在 runtime 中的目录、与视觉流水线的边界、人脸门控与会话状态机，以及麦克风/按键扩展方式。
-- LLM 为**逻辑层能力**：**不**实现 `IModelAdapter`，**不**进入 `RunEnabledSlots` / 每帧 `Preprocess→Inference→Postprocess`。
-- TTS 为并列旁路：LLM chunk 经 `OnLlmChunk` 投递事件，主线程 `PollDeferred` → Ingress/Planner → `EnqueueFormalAnswer`（详见 TTS 主文档）。
-- 实现以当前代码为准；§4 为产品行为定稿，§7 为未完成项。
+- This doc covers RKLLM (Qwen2.5 and other `.rkllm` models) layout in runtime, boundary vs the vision pipeline, face gate and session FSM, and mic/button extension.
+- LLM is a **logic-layer** capability: **no** `IModelAdapter`, **not** in `RunEnabledSlots` / per-frame `Preprocess→Inference→Postprocess`.
+- TTS is a parallel side path: LLM chunks via `OnLlmChunk` → main-thread `PollDeferred` → Ingress/Planner → `EnqueueFormalAnswer` (see TTS doc).
+- Behavior matches current code; §4 is product spec; §7 is backlog.
 
-**相关代码：**
+**Related code:**
 
-| 模块 | 路径 |
+| Module | Path |
+|--------|------|
+| RKLLM wrapper | [`adapters/llm/rkllm_session.*`](../runtime/adapters/llm/rkllm_session.cpp) |
+| Inference and queue | [`adapters/llm/llm_worker.*`](../runtime/adapters/llm/llm_worker.cpp) |
+| Face gate and session | [`platform/llm_greeting.*`](../runtime/platform/llm_greeting.cpp) |
+| Multi-slot per-frame policy | [`platform/model_coordinator.cpp`](../runtime/platform/model_coordinator.cpp) |
+| Terminal input | [`engine/pipeline.cpp`](../runtime/engine/pipeline.cpp) `PollTerminalPromptInput` |
+
+---
+
+## 1. Why `adapters/llm`
+
+| Item | Note |
 |------|------|
-| RKLLM 封装 | [`adapters/llm/rkllm_session.*`](../runtime/adapters/llm/rkllm_session.cpp) |
-| 推理与排队 | [`adapters/llm/llm_worker.*`](../runtime/adapters/llm/llm_worker.cpp) |
-| 人脸门控与会话 | [`platform/llm_greeting.*`](../runtime/platform/llm_greeting.cpp) |
-| 多槽与每帧策略 | [`platform/model_coordinator.cpp`](../runtime/platform/model_coordinator.cpp) |
-| 终端输入 | [`engine/pipeline.cpp`](../runtime/engine/pipeline.cpp) `PollTerminalPromptInput` |
+| Consistency | Same level as `adapters/yolo`, `scrfd`; linked into `edgeai_app` |
+| API | `rkllm_init` / **sync `rkllm_run`** / callbacks → `rkllm_session` |
+| Third party | `runtime/3rdparty/rkllm/`: `rkllm.h`, `librkllmrt.so`, `libgomp.so` |
+
+Adapter files: [adapters.md](adapters.md) § LLM.
 
 ---
 
-## 1. 为何放在 `adapters/llm`
+## 2. Integration options (conclusion)
 
-| 项 | 说明 |
-|----|------|
-| 一致性 | 与 `adapters/yolo`、`scrfd` 同级，统一编入 `edgeai_app` |
-| API | `rkllm_init` / **`rkllm_run`（同步）** / callback → `rkllm_session` |
-| 第三方 | `runtime/3rdparty/rkllm/`：`rkllm.h`、`librkllmrt.so`、`libgomp.so` |
-
-适配器文件与路径速览见 [adapters.md](adapters.md) § LLM。
-
----
-
-## 2. 挂钩方案（结论）
-
-| 方案 | 结论 |
-|------|------|
-| **A. `adapters/llm` + `LlmGreeting` + 独立推理线程** | **采用** |
-| B. `IModelAdapter` 每帧 llm 槽 | 不推荐 |
-| C. 在协调器或主循环内同步 `rkllm_run` | 不推荐；现为 **`infer_thread_` 内 `rkllm_run`** |
-| E. 云端 API | 超出本阶段 |
+| Option | Verdict |
+|--------|---------|
+| **A. `adapters/llm` + `LlmGreeting` + dedicated infer thread** | **Chosen** |
+| B. Per-frame `IModelAdapter` llm slot | Not recommended |
+| C. Sync `rkllm_run` in coordinator or main loop | Not recommended; today **`rkllm_run` on `infer_thread_`** |
+| E. Cloud API | Out of scope |
 
 ---
 
-## 3. 架构
+## 3. Architecture
 
-**每帧 · 主线程（`flowchart LR`）**
+**Per-frame · main thread (`flowchart LR`)**
 
 ```mermaid
 flowchart LR
@@ -57,7 +57,7 @@ flowchart LR
     Greet -->|PollInitState| TTS[TtsWorker]
 ```
 
-**用户对话 · `infer_thread_`（`sequenceDiagram`）**
+**User dialogue · `infer_thread_` (`sequenceDiagram`)**
 
 ```mermaid
 sequenceDiagram
@@ -70,177 +70,179 @@ sequenceDiagram
     participant TTS as TtsWorker
 
     YOU->>Greet: SubmitPrompt
-    Greet->>Worker: 排队
+    Greet->>Worker: queue
     Worker->>Infer: RunPromptNow
     Infer->>RK: rkllm_run
     RK-->>AI: NORMAL printf
-    RK-->>Worker: NORMAL 回调
-    Worker->>Worker: OnLlmChunk 入队
+    RK-->>Worker: NORMAL callback
+    Worker->>Worker: OnLlmChunk enqueue
     Greet->>Worker: PollDeferred
     Worker->>TTS: DrainDeferredTts
 ```
 
-- **自动问候**：人脸稳定 → `SetBannerLine` → `stdout AI>`（不经 `Infer` / `rkllm_run`；见 §4.1）。
-- **每帧末**（主线程）：`ModelCoordinator::UpdateAfterFrame` → `LlmGreeting::Update` + `LlmGreeting::PollDeferred()` → `LlmWorker::PollDeferred()`（`PollInitState`、`DrainDeferredTtsEvents`、deferred/pending 下一句 `RunPromptNow`）；同帧内 `TtsWorker::PollInitState()` 与 `TryOpenDialogueIfReady()` 在 `LlmGreeting` 内完成。
-- **RK 回调**在 `infer_thread_` 上执行；TTS 与下一句 prompt 仅在主线程 `PollDeferred` 中消费，避免与 stdout/门控并发乱序。
+- **Auto greeting**: stable face → `SetBannerLine` → `stdout AI>` (not via `Infer` / `rkllm_run`; see §4.1).
+- **End of each frame** (main thread): `ModelCoordinator::UpdateAfterFrame` → `LlmGreeting::Update` + `LlmGreeting::PollDeferred()` → `LlmWorker::PollDeferred()` (`PollInitState`, `DrainDeferredTtsEvents`, deferred/pending next `RunPromptNow`); same frame also runs `TtsWorker::PollInitState()` and `TryOpenDialogueIfReady()` inside `LlmGreeting`.
+- **RK callbacks** run on `infer_thread_`; TTS and the next prompt are consumed only in main-thread `PollDeferred`, avoiding races with stdout and the input gate.
 
 ---
 
-## 4. 数据与控制流（现行）
+## 4. Data and control flow (current)
 
 ```text
-【自动问候】人脸稳定 → TryAutoPromptOnStableFace → SetBannerLine(auto_greeting_text_) → stdout AI>
-  （不经 rkllm_run；busy 时不插入）
+[Auto greet] stable face → TryAutoPromptOnStableFace → SetBannerLine(auto_greeting_text_) → stdout AI>
+  (no rkllm_run; not inserted when busy)
 
-【用户对话】stdin YOU> → SubmitUserPrompt → SubmitPrompt（Cancel）
+[User chat] stdin YOU> → SubmitUserPrompt → SubmitPrompt (Cancel)
     → infer_thread_: fprintf("AI> ") → RunPromptSync → rkllm_run
     → StaticCallback: NORMAL printf("%s"); FINISH printf("\n")
-    → OnLlmChunk: NORMAL/FINISH 投递 TTS chunk event；FINISH 时排队 deferred
-    → PollDeferred: DrainDeferredTtsEvents → TTS；下一句 RunPromptNow
+    → OnLlmChunk: NORMAL/FINISH post TTS chunk events; FINISH queues deferred work
+    → PollDeferred: DrainDeferredTtsEvents → TTS; next sentence RunPromptNow
 ```
 
-| 文件 | 角色 |
+| File | Role |
 |------|------|
-| `rkllm_session.cpp` | 唯一调用 `rkllm_*`；`RunPromptSync`；回调直写 stdout |
-| `llm_worker.cpp` | 异步 `rkllm_init`（**先 stat 预检**）；`IsLoadFailed`；`infer_thread_`；`SubmitPrompt` 排队 |
-| `llm_greeting.cpp` | Locked/Arming/Active/Grace；门控；静态问候；**仅视觉降级** UX |
-| `model_coordinator.cpp` | 视觉槽；每帧末调用 `llm_greeting_.PollDeferred()` |
-| `pipeline.cpp` | 终端 `YOU>` |
+| `rkllm_session.cpp` | Sole `rkllm_*` caller; `RunPromptSync`; callbacks to stdout |
+| `llm_worker.cpp` | Async `rkllm_init` (**stat first**); `IsLoadFailed`; `infer_thread_`; `SubmitPrompt` queue |
+| `llm_greeting.cpp` | Locked/Arming/Active/Grace; gate; static greet; **vision-only** UX |
+| `model_coordinator.cpp` | Vision slots; per-frame `llm_greeting_.PollDeferred()` |
+| `pipeline.cpp` | Terminal `YOU>` |
 
-**InitOnce：** 首次 `rkllm_init` 成功后进程内保持加载；脸消失 **不** `rkllm_destroy`。模型异步加载为 `std::async`，只影响首启。
+**InitOnce:** After first successful `rkllm_init`, model stays loaded; face leave does **not** `rkllm_destroy`. Async load via `std::async` affects cold start only.
 
-**仍可能影响体感：** YOLO + SCRFD 与 LLM 争用 NPU/带宽；`[INFO]` 等诊断日志在 stderr，与 stdout 会话行分离。
+**Latency factors:** YOLO + SCRFD vs LLM on NPU/bandwidth; `[INFO]` on stderr, session lines on stdout.
 
 ---
 
-## 4.1 与 TTS 协同
+## 4.1 TTS coordination
 
 ```text
 YOU> -> SubmitPrompt (Cancel)
      -> rkllm_run -> OnLlmChunk (NORMAL/FINISH) -> tts_events_
      -> PollDeferred -> TtsIngress -> TtsPlanner -> EnqueueFormalAnswer
-     -> TtsWorker 合成/播放（详见 TTS 主文档）
+     -> TtsWorker synth/play (see TTS doc)
 ```
 
-- 每次 `YOU>`：`desired_tts_session_id_++`，丢弃旧代际文本/PCM。
-- `LlmGreeting` 管门控；TTS 仅消费 Ingress 过滤后的可见正文。
-- 验收与排障见 [tts-melotts.md](tts-melotts.md)。
+- Each `YOU>`: `desired_tts_session_id_++`, drop old generation text/PCM.
+- `LlmGreeting` owns the gate; TTS only sees Ingress-filtered visible text.
+- Acceptance and debug: [tts-melotts.md](tts-melotts.md).
 
 ---
 
-## 5. 终端 UX
+## 5. Terminal UX
 
-| 前缀 | 来源 | 路径 |
-|------|------|------|
-| `SYS>` | 系统提示 | `LogSystem` → stdout |
-| `YOU>` | 用户输入 | `Pipeline::PollTerminalPromptInput` |
-| `AI>` | **用户对话** | `RunPromptNow` 打印前缀 + `StaticCallback` 流式 |
-| `AI>` | **自动问候** | `SetBannerLine` 一次性输出配置文案（**仅 `IsReady()`**） |
+| Prefix | Source | Path |
+|--------|--------|------|
+| `SYS>` | System | `LogSystem` → stdout |
+| `YOU>` | User | `Pipeline::PollTerminalPromptInput` |
+| `AI>` | **User chat** | `RunPromptNow` prefix + `StaticCallback` stream |
+| `AI>` | **Auto greet** | `SetBannerLine` once from config (**only when `IsReady()`**) |
 
-**`SYS>` 与 LLM 状态（`model.llm.enabled=true`）**
+**`SYS>` vs LLM state (`model.llm.enabled=true`)**
 
-| 时机 | 文案 |
-|------|------|
-| 缺文件 / `rkllm_init` 失败 | `仅视觉模式（对话模型未加载）` |
-| `Pipeline::Run` 且加载中 | `对话模型加载中，请稍候` |
-| `Pipeline::Run` 且已 Ready | `输入通道已就绪，人脸稳定后可对话` |
-| 异步 init 成功（`PollInitState`） | `对话模型已就绪，人脸稳定后可输入` |
-| `YOU>` 但 `IsLoadFailed` | `对话不可用（模型未加载）`（每会话一次） |
-| 门控关（无人脸） | `当前未检测到稳定人脸，暂不接收对话输入` |
+Product strings are Chinese on the terminal (same as [llm-model-coordinator.zh.md](llm-model-coordinator.zh.md) §5 and §9 below).
 
-`Failed` 时 **不重复** 打启动类 `SYS>`（预检/init 失败已提示一次）。
+| When | Product message | Summary (EN) |
+|------|-----------------|--------------|
+| Missing file / `rkllm_init` fail | `仅视觉模式（对话模型未加载）` | Vision-only; dialogue model not loaded |
+| `Pipeline::Run` while loading | `对话模型加载中，请稍候` | Model loading, please wait |
+| `Pipeline::Run` when Ready | `输入通道已就绪，人脸稳定后可对话` | Input channel ready after stable face |
+| Async init OK (`PollInitState`) | `对话模型已就绪，人脸稳定后可输入` | Model ready; input after stable face |
+| `YOU>` when `IsLoadFailed` | `对话不可用（模型未加载）` | Dialogue unavailable (once per session) |
+| Gate closed (no stable face) | `当前未检测到稳定人脸，暂不接收对话输入` | No stable face; input rejected |
 
-- 用户对话 **不** 经 `SetBannerLine` 流式转发（`OnLlmChunk` 不处理 NORMAL）。
-- `LLM_OUT|...` 为 `SetBannerLine` 在 `is_final` 时的 Debug 汇总（问候等）。
-- LLM 不画在 `ResultOverlay` 检测框层。
+On `Failed`, **no repeat** startup `SYS>` (precheck/init already logged once).
+
+- User chat does **not** stream via `SetBannerLine` (`OnLlmChunk` ignores NORMAL for that).
+- `LLM_OUT|...` is debug summary from `SetBannerLine` on `is_final` (greeting, etc.).
+- LLM is not drawn on `ResultOverlay` detection layer.
 
 ---
 
-## 6. 行为定稿
+## 6. Specified behavior
 
-### 6.1 Prompt 与生成
+### 6.1 Prompts and generation
 
-| 场景 | 行为 |
-|------|------|
-| **正在生成** | 说完当前句；脸消失/Grace **不** `rkllm_abort` |
-| **人脸稳定（首次/再现）** | **`IsReady()`** 时输出 **`auto_greeting_text`**（`SetBannerLine`）；再现时 `FaceReenter` 仅影响日志 source |
-| **缺 `.rkllm` / 加载失败** | **仅视觉**：无 `AI>` 问候；`prompt_gate` 不开放；视觉照常 |
-| **人脸持续在** | 不自动多轮；等待用户 **终端**（麦克风源已接）或日后按键 |
-| **人脸消失** | 关 `prompt_gate`；`DropQueuedPrompts`；当前 RKLLM 句仍播完 |
-| **进程退出** | `Pipeline::Stop` → `AbortActiveGeneration` → `Shutdown` / `rkllm_destroy` |
+| Case | Behavior |
+|------|----------|
+| **Generating** | Finish current sentence; face leave/Grace does **not** `rkllm_abort` |
+| **Stable face (first/return)** | **`IsReady()`** → **`auto_greeting_text`** via `SetBannerLine`; `FaceReenter` only changes log source |
+| **Missing `.rkllm` / load fail** | **Vision-only**: no `AI>` greet; gate closed; vision OK |
+| **Face stays** | No auto multi-turn; wait for **terminal** (mic wired) or future button |
+| **Face leaves** | Close gate; `DropQueuedPrompts`; current RKLLM sentence still completes |
+| **Process exit** | `Pipeline::Stop` → `AbortActiveGeneration` → `Shutdown` / `rkllm_destroy` |
 
-### 6.2 模型生命周期
+### 6.2 Model lifecycle
 
-| 事件 | 动作 |
-|------|------|
-| 首次需要 LLM | `RequestInitializeAsync`：**stat 通过**后 `rkllm_init`（`preload_on_startup` / `preload_on_scrfd`）；缺文件 → `Failed`，不调 `rkllm_init` |
-| 加载失败（`Failed`） | `IsLoadFailed()`；本进程内不再 `RequestInitializeAsync`；仅视觉 UX |
-| 人脸消失 / Grace 超时 / 空闲超时 | 关门控、清排队；**不** 卸载模型 |
-| 人脸再次稳定 | **`IsReady()`** 时开门控；可再发静态问候（新一次到访） |
-| 模型加载完成（`PollDeferred`） | `TryOpenDialogueIfReady`：补开门控与问候 |
-| 进程退出 | `LlmWorker::Shutdown` |
+| Event | Action |
+|-------|--------|
+| First need LLM | `RequestInitializeAsync`: **stat OK** then `rkllm_init`; missing file → `Failed`, no init |
+| Load fail (`Failed`) | `IsLoadFailed()`; no more `RequestInitializeAsync` this process; vision-only UX |
+| Face leave / grace / idle timeout | Close gate, clear queue; **do not** unload model |
+| Face stable again | Open gate when **`IsReady()`**; static greet again (new visit) |
+| Load done (`PollDeferred`) | `TryOpenDialogueIfReady`: gate + greet if needed |
+| Process exit | `LlmWorker::Shutdown` |
 
-### 6.3 明确不做
+### 6.3 Explicitly out of scope
 
-- 无用户输入时的周期性自动 RKLLM 多轮。
-- LLM 注册为 vision 每帧槽。
-- 脸消失时 `rkllm_destroy`（与快速再现冲突）。
+- Periodic RKLLM turns without user input.
+- LLM as a per-frame vision slot.
+- `rkllm_destroy` on face leave (conflicts with quick return).
 
-### 6.4 会话状态机
+### 6.4 Session FSM
 
 ```mermaid
 stateDiagram-v2
     direction LR
     [*] --> Locked
-    Locked --> Arming: scrfd开且检测到脸
-    Arming --> Locked: scrfd关或脸不稳定
-    Arming --> Active: 脸稳定达阈值
-    Active --> Grace: 脸连续缺失
-    Grace --> Active: 脸恢复稳定
-    Grace --> Locked: grace超时
-    Active --> Locked: idle超时
+    Locked --> Arming: scrfd on and face seen
+    Arming --> Locked: scrfd off or unstable face
+    Arming --> Active: face stable threshold
+    Active --> Grace: face absent streak
+    Grace --> Active: face stable again
+    Grace --> Locked: grace timeout
+    Active --> Locked: idle timeout
 ```
 
-`LlmWorker` 侧：`Uninitialized → Initializing → Ready` 或 **`Failed`**（缺文件 / `rkllm_init` 失败）；`Ready ↔ Generating`（`infer_thread_` 上 `rkllm_run`）。
+`LlmWorker`: `Uninitialized → Initializing → Ready` or **`Failed`**; `Ready ↔ Generating` on `infer_thread_` during `rkllm_run`.
 
-`prompt_gate_open_` 仅在 **`LlmWorker::IsReady()`** 时因人脸稳定打开；`Active` 会话态与「可对话」分离（Failed 时可有脸框但不可输入）。
+`prompt_gate_open_` opens on stable face only when **`LlmWorker::IsReady()`**; `Active` session ≠ “can chat” (Failed may show face box but no input).
 
-### 6.5 与 SCRFD
+### 6.5 SCRFD
 
-- `person` 场景稳定 → `EnableSlot("scrfd")`。
-- 自动问候与门控依赖 `face_detected` + `face_stable_frames`，非每帧 RKLLM。
-- SCRFD 五官画点：待实现（与 LLM 无关）。
+- Stable `person` → `EnableSlot("scrfd")`.
+- Auto greet and gate use `face_detected` + `face_stable_frames`, not per-frame RKLLM.
+- SCRFD five-point overlay: TODO (unrelated to LLM).
 
 ---
 
-## 7. 麦克风 / 按键 / 待办
+## 7. Mic / button / backlog
 
-**已接：** `Pipeline` → `LlmGreeting::SubmitUserPrompt` → `SubmitPrompt(..., Microphone, gate)`。
+**Wired:** `Pipeline` → `LlmGreeting::SubmitUserPrompt` → `SubmitPrompt(..., Microphone, gate)`.
 
-**未接：** 按键 → `SubmitPrompt(..., Button)`；`allow_input_without_face` 配置项未实现。
+**Not wired:** button → `SubmitPrompt(..., Button)`; `allow_input_without_face` config.
 
 ```text
 LlmPromptSource: FaceAppear | FaceReenter | Microphone | Button | Command
 ```
 
-| 待办 | 说明 |
-|------|------|
-| 按键输入 | `Button` source |
-| SCRFD 五点 overlay | 后处理已有坐标，绘制待接 |
-| 日志插屏 | 状态迁移多为 `LogDebug`；FPS 等 `LogInfo` 仍可能频繁 |
+| Backlog | Note |
+|---------|------|
+| Button input | `Button` source |
+| SCRFD five-point overlay | coords in postprocess; draw TODO |
+| On-screen logs | state changes mostly `LogDebug`; FPS `LogInfo` may be frequent |
 
 ---
 
-## 8. 配置项
+## 8. Configuration
 
-见 [`config/default.yaml`](../runtime/config/default.yaml)：
+See [`config/default.yaml`](../runtime/config/default.yaml):
 
 ```yaml
 model:
   llm:
     enabled: true
     path: ./model/qwen2.5-1.5b_W8A8_RK3588.rkllm
-    max_new_tokens: 4096      # 与 max_context_len 同值可避免长答截断
+    max_new_tokens: 4096
     max_context_len: 4096
     preload_on_startup: true
     preload_on_scrfd: true
@@ -248,45 +250,44 @@ model:
     face_absent_frames: 10
     grace_timeout_ms: 5000
     idle_timeout_ms: 60000
-    auto_greeting_text: "..."   # 静态问候，不经 rkllm_run
+    auto_greeting_text: "..."   # static greet, no rkllm_run
 ```
 
-`enabled` 支持 `true`/`false`（`ConfigParser::GetBool`）。
+`enabled`: `true`/`false` via `ConfigParser::GetBool`.
 
 ---
 
-## 9. 调试日志
+## 9. Debug logs
 
-| 日志 | 含义 |
-|------|------|
-| `LlmWorker: model file missing or unreadable, skip rkllm_init` | stat 预检失败，进入仅视觉 |
-| `SYS> 仅视觉模式（对话模型未加载）` | 缺文件或 init 失败后的用户提示 |
-| `LlmWorker: async InitOnce start` | stat 通过，开始加载 `.rkllm` |
-| `LlmWorker: rkllm_init ok` | 成功，不应重复 init |
-| `SYS> 对话模型已就绪，人脸稳定后可输入` | 异步 init 成功 |
-| `LlmGreeting: auto greeting emitted` | 静态问候已输出（须 Ready） |
-| `LlmGreeting: reject input gate_open=0` | 门控拒绝（Debug） |
-| `SYS> 对话不可用（模型未加载）` | `YOU>` 在 Failed 时被拒 |
-| `LlmGreeting: state ... -> ...` | 会话状态迁移（多为 Debug） |
-| 终端 `YOU>` / `AI>` | 用户输入 / RKLLM 或静态问候 |
-| `LlmWorker: queued one prompt (busy)` | busy 时保留一句排队 |
-| `LlmWorker: rkllm_run failed` | 同步推理失败 |
-| `LLM_OUT\|src=...\|text=...` | `SetBannerLine` 收尾 Debug |
+| Log | Meaning |
+|-----|---------|
+| `LlmWorker: model file missing or unreadable, skip rkllm_init` | stat failed → vision-only |
+| `SYS> 仅视觉模式（对话模型未加载）` | User-facing vision-only |
+| `LlmWorker: async InitOnce start` | stat OK, loading `.rkllm` |
+| `LlmWorker: rkllm_init ok` | Success; should not repeat init |
+| `SYS> 对话模型已就绪，人脸稳定后可输入` | Async init OK |
+| `LlmGreeting: auto greeting emitted` | Static greet sent (must be Ready) |
+| `LlmGreeting: reject input gate_open=0` | Gate reject (Debug) |
+| `SYS> 对话不可用（模型未加载）` | `YOU>` rejected on Failed |
+| `LlmGreeting: state ... -> ...` | Session transition (often Debug) |
+| Terminal `YOU>` / `AI>` | User / RKLLM or static greet |
+| `LlmWorker: queued one prompt (busy)` | One prompt queued while busy |
+| `LlmWorker: rkllm_run failed` | Sync infer failed |
+| `LLM_OUT\|src=...\|text=...` | `SetBannerLine` final debug |
 
-诊断日志走 **stderr**；会话行走 **stdout**。
+Diagnostics on **stderr**; session on **stdout**.
+
+
+## 10. Related docs
+
+| Doc | Use |
+|-----|-----|
+| [architecture-and-runtime.md](architecture-and-runtime.md) | Platform overview, load order, continue development |
+| [tts-melotts.md](tts-melotts.md) | TTS design and acceptance |
+| [adapters.md](adapters.md) § LLM | LLM adapter cheat sheet |
+| [troubleshooting.md](troubleshooting.md) | Zero boxes, wrong paths, exit/crash; TTS details in TTS doc |
+| [README.md](../README.md) | Documentation index |
 
 ---
 
-## 10. 相关文档
-
-| 文档 | 用途 |
-|------|------|
-| [architecture-and-runtime.md](architecture-and-runtime.md) | 平台总览、加载顺序、接续开发 |
-| [tts-melotts.md](tts-melotts.md) | TTS/语音对话设计与验收 |
-| [adapters.md](adapters.md) § LLM | LLM 适配器速览 |
-| [troubleshooting.md](troubleshooting.md) | 0 框、路径错、退出/崩溃；TTS 细节见 TTS 专文 |
-| [README.md](../README.md) | Edge AI Runtime 文档索引 |
-
----
-
-*以 `runtime/` 代码为准。*
+*Authoritative: `runtime/` code.*

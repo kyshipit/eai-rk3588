@@ -213,12 +213,34 @@ YoloAdapter::~YoloAdapter()
 }
 
 /* 加载模型、初始化标签、绑定 NPU 核 */
+/* 从 model_path 目录推导标签文件绝对路径；失败则回退到相对路径 */
+static std::string resolve_label_path(const std::string &model_path)
+{
+	const char *kLabelFile = "coco_80_labels_list.txt";
+	char resolved[PATH_MAX] = {0};
+
+	std::string dir = model_path;
+	size_t pos = dir.find_last_of('/');
+	if (pos != std::string::npos) {
+		dir = dir.substr(0, pos + 1);
+	} else {
+		dir.clear();
+	}
+
+	std::string abs_path = dir + kLabelFile;
+	if (realpath(abs_path.c_str(), resolved) != nullptr) {
+		return std::string(resolved);
+	}
+	return abs_path;
+}
+
 int YoloAdapter::Init(const std::string &model_path, int npu_core_mask)
 {
 	static std::once_flag postprocess_init_flag;
-	std::call_once(postprocess_init_flag, []() {
-		if (init_post_process() != 0) {
-			LogError("YoloAdapter: init_post_process failed (check ./model/coco_80_labels_list.txt)");
+	std::call_once(postprocess_init_flag, [&model_path]() {
+		std::string label_path = resolve_label_path(model_path);
+		if (init_post_process(label_path.c_str()) != 0) {
+			LogError("YoloAdapter: init_post_process failed (label=%s)", label_path.c_str());
 		}
 	});
 

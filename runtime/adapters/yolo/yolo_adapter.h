@@ -4,7 +4,7 @@
 /*
  * adapters/yolo_adapter.h
  *
- * YOLOv5 RKNN 插件；见 yolo_adapter.cpp 与 docs/adapters.md
+ * YOLOv5 RKNN 插件；见 yolo_adapter.cpp 与 docs/adapters.zh.md
  */
 #pragma once
 
