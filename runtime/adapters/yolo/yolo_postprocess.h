@@ -46,7 +46,8 @@ typedef struct {
 } object_detect_result_list;
 
 // 初始化后处理模块（加载标签文件）。
-int init_post_process();
+// label_path 传绝对路径，避免依赖进程工作目录（CWD）。
+int init_post_process(const char *label_path);
 // 释放后处理模块资源（标签内存）。
 void deinit_post_process();
 // 通过类别 id 查询 COCO 标签名。

@@ -584,14 +584,14 @@ int post_process(rknn_app_context_t *app_ctx, void *outputs, letterbox_t *letter
     return 0;
 }
 
-/* 加载 ./model/coco_80_labels_list.txt */
-int init_post_process()
+/* 加载标签文件（label_path 应为绝对路径） */
+int init_post_process(const char *label_path)
 {
     int ret = 0;
-    ret = loadLabelName(LABEL_NALE_TXT_PATH, labels);
+    ret = loadLabelName(label_path, labels);
     if (ret < 0)
     {
-        LogError("YoloPost: Load %s failed", LABEL_NALE_TXT_PATH);
+        LogError("YoloPost: Load %s failed", label_path);
         return -1;
     }
     return 0;
