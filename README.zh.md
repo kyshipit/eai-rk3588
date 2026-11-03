@@ -2,63 +2,44 @@
 
 # EAI-RK3588：基于插件的边缘AI平台
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![OpenCV](https://img.shields.io/badge/OpenCV-green?logo=opencv)
-![Platform](https://img.shields.io/badge/Platform-RK3588-red)
-![YOLO](https://img.shields.io/badge/YOLOv5-111F68?logo=yolo&logoColor=white)
-![TTS](https://img.shields.io/badge/TTS-MeloTTS-blue)
-![SCRFD](https://img.shields.io/badge/SCRFD-FF6F00)
-![RKNN](https://img.shields.io/badge/RKNN-orange)
-![RKLLM](https://img.shields.io/badge/RKLLM-brightgreen)
+EAI-RK3588 是为 Rockchip RK3588 / RK3588S 设计的可扩展边缘推理平台。通过一份 YAML 配置文件驱动，结合多线程视频流水线与插件化架构，内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成（TTS）。默认应用展示人员检测 → 人脸识别 → 自动问候 → 语音对话的完整闭环，视觉逐帧推理与 LLM/TTS 旁路线程解耦，互不阻塞。
 
-EAI-RK3588 是为 Rockchip RK3588 设计的可扩展边缘推理平台。通过一份 YAML 配置文件驱动，结合多线程视频流水线与插件化架构，内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成（TTS）。默认应用展示了人脸门控、AI 问候与对话等功能。
+已在正点原子 RK3588 与野火鲁班猫 RK3588 / RK3588S 上实测通过。
 
 <video src="https://github.com/user-attachments/assets/ecccc336-8c3d-47c2-b277-298a9b517630" controls width="100%"></video>
 
----
-## 📋 目录
+## 板卡适配
 
-- [✨ 核心特性](#-核心特性)
-- [🏗️ 架构设计](#️-架构设计)
-- [🚀 快速开始](#-快速开始)
-- [⚙️ 配置说明](#️-配置说明)
-- [📖 文档与代码入口](#-文档与代码入口)
-- [🔧 本地检查工具](#-本地检查工具)
-- [📄 License](#-license)
----
+推理层走 Rockchip rknpu，RK3588 / RK3588S 系列板卡通用。代码本身不依赖具体板卡，移植时需要按板端实际情况调整与代码直接相关的几项，包括摄像头节点、摄像头型号、喇叭和编译工具链等，其余部分通用。
+> RK3588 的 rknpu / MPP / RGA 驱动只存在于厂商 BSP 内核中。请使用正点原子 或 鲁班猫的官方镜像 / BSP 内核，标准 mainline 内核不带这些驱动。
 
-## ✨ 核心特性
+| 差异项 | 说明 |
+|---|---|
+| 摄像头节点 | 部署时用 `ls /dev/video*` 查看板端实际节点，填入 `input.source` |
+| 摄像头型号 | 实测 MIPI IMX415 与 OV8858 |
+| 喇叭 / 音频输出 | 板端音频设备可能不同，按系统实际配置调整 |
+| 编译工具链 | 各厂商的交叉编译链和 sysroot 不同，替换 `build-linux.sh` 中的工具链路径与 sysroot |
 
-- **插件化架构**：YOLO、SCRFD、LLM、TTS 均以插件形式实现，按需加载。
+已实测组合：
 
-- **配置驱动**：所有功能（检测、对话、语音）通过 `default.yaml` 灵活开关。
+- 正点原子 RK3588 + MIPI IMX415
+- 野火鲁班猫 RK3588 / RK3588S + MIPI IMX415 / OV8858
 
-- **低延迟流水线**：视频帧处理与 LLM/TTS 逻辑分离，保证实时推理性能。
+香橙派等其它 RK3588 / RK3588S 板卡尚未实测，移植时参考代码脚本调整即可。
 
-- **开箱即用的人脸门控场景**：人员检测 → 人脸识别 → 自动问候 → 语音对话，完整端到端流程。
+## 快速开始
 
-- **支持本地大模型**：集成 RKLLM，无需联网即可进行对话推理。
+确保 `model/` 下已放入 `.rknn` 与 `.rkllm` 模型文件；缺 `.rkllm` 时自动降级为纯视觉模式。
 
-- **跨平台编译**：提供交叉编译脚本，快速部署到正点原子 RK3588 开发板。
+在仓库根目录先做预检：
 
+```bash
+python3 tools/check_config.py    # 校验 YAML 字段类型与范围
 
-## 🏗️ 架构设计
+./tools/check_models.sh          # 检查模型文件是否就位
+```
 
-![Edge AI Runtime 架构](assets/architecture_cn.svg)
-
-> 实线：视频帧与推理结果；虚线：YAML 与人体/人脸信号。LLM、TTS 均为逻辑旁路（`adapters/llm`、`voice/` + `adapters/melotts`），不参与每帧 `Preprocess→Inference→Postprocess` 流水线。
-
-| 层       | 目录                                    | 职责                                      |
-| -------- | --------------------------------------- | ----------------------------------------- |
-| 入口     | `runtime/app/`                          | 读取 YAML，启动 Pipeline 与 ModelCoordinator |
-| 采集/显示 | `runtime/capture/`, `runtime/display/`  | 采集帧、旋转、画框、OpenCV 预览           |
-| 引擎     | `runtime/engine/`                       | 预处理 → 推理 → 主线程显示与 stdin 交互   |
-| 策略     | `runtime/platform/`                     | 场景切换、人脸门控、自动问候逻辑          |
-| 模型插件 | `runtime/adapters/`                     | yolo / scrfd / llm / tts 插件，按配置启停 |
-
-更详细的启动顺序、线程模型与设计决策请参阅：[docs/architecture-and-runtime.zh.md](docs/architecture-and-runtime.zh.md)。
-
-## 🚀 快速开始
+然后进入 runtime/ 编译并推送：
 
 ```bash
 # 1. 进入 runtime 目录
@@ -67,85 +48,78 @@ cd runtime
 # 2. 执行交叉编译脚本（使用正点原子工具链）
 ./build-linux.sh
 
-# 3. 将编译产物推送到开发板（替换 <target_directory> 为板端目录，如 /userdata）
+# 3. 将编译产物推送到开发板（推送到 /userdata/aidemo，按需修改路径）
 adb push install/rk3588_linux_aarch64/rknn_eai_rk3588 /userdata/aidemo
 
-# 4. 进入板端目录
+# 4. 进入板端目录并运行
 cd /userdata/aidemo/rknn_eai_rk3588
 ./edgeai_app
 ```
 
-## ⚙️ 配置说明
+上面命令使用正点原子工具链。鲁班猫或其他 RK3588 / RK3588S 板卡需按上一节调整工具链路径、摄像头节点和喇叭，其余步骤不变。
 
-关键配置项（位于 `config/default.yaml`）：
+## 架构设计
 
-| 配置项 | 说明 |
-| ------ | ---- |
-| `model.llm.enabled` | 是否启用 LLM 对话链路；若 `false` 或模型缺失，仅运行视觉检测 |
-| `model.tts.enabled` | 是否启用 TTS 语音播报（需 `model.llm.enabled` 为 `true`） |
-| `model.tts.skip_static_greeting` | `true` 时，人脸稳定后不播报静态问候语（只播报后续对话） |
-| `model.yolo.path` | YOLO 模型文件路径（相对于可执行文件） |
-| `model.scrfd.path` | SCRFD 人脸检测模型路径 |
-| `model.llm.path` | RKLLM 模型文件路径 |
-| `model.tts.encoder_path` / `decoder_path` | TTS 编码器/解码器 RKNN 路径 |
-| `model.tts.lexicon_path` / `tokens_path` | TTS 词表文件路径 |
-| `capture.device` | 摄像头设备节点（如 `/dev/video0`） |
-| `display.window_name` | 预览窗口标题 |
+![Edge AI Runtime 架构](assets/architecture_cn.svg)
 
-完整字段及注释请参考 `runtime/config/default.yaml`。
+实线是视频帧与推理结果，虚线是 YAML 与人体/人脸信号；LLM 和 TTS 是独立线程的旁路，不参与每帧 Preprocess → Inference → Postprocess 流水线。启动顺序、线程模型与槽位设计见[docs/architecture-and-runtime.zh.md](docs/architecture-and-runtime.zh.md)。
 
----
+## 配置说明
 
-## 📖 文档与代码入口
+所有配置集中在 `runtime/config/default.yaml`，每个字段上方都有中文注释和取值范围，改完保存即生效，无需重编译。部署时通常只需要改以下几项：
 
-| 文档/用途 | 说明 |
-| --------- | ---- |
-| [docs/architecture-and-runtime.zh.md](docs/architecture-and-runtime.zh.md) | 启动顺序、流水线、槽位与平台设计详情 |
-| [docs/tts-melotts.zh.md](docs/tts-melotts.zh.md) | TTS 实现细节与验收指南 |
-| [docs/llm-model-coordinator.zh.md](docs/llm-model-coordinator.zh.md) | RKLLM 协调、门控逻辑与终端交互 UX |
-| [docs/troubleshooting.zh.md](docs/troubleshooting.zh.md) | 常见问题排查（无框、路径错误、退出崩溃等） |
-| [docs/adapters.zh.md](docs/adapters.zh.md) | 各插件模块（yolo/scrfd/llm/tts）的文件职责说明 |
+| 字段               | 默认值                                   | 说明                       |
+| :----------------- | :--------------------------------------- | :------------------------- |
+| `input.source`     | `/dev/video-camera0`                     | 摄像头设备节点，换板卡必改 |
+| `model.yolo.path`  | `./model/yolov5.rknn`                    | YOLO 模型路径              |
+| `model.scrfd.path` | `./model/scrfd.rknn`                     | SCRFD 模型路径             |
+| `model.llm.path`   | `./model/qwen2.5-1.5b_W8A8_RK3588.rkllm` | RKLLM 模型路径             |
 
-**代码入口**：
+TTS 编码器、解码器和词表的路径字段默认指向 `./model/` 下对应文件，换 TTS 模型时改对应的 `*_path` 字段即可。其余参数包括人脸稳定帧数、问候语文本、TTS 语速与分句策略、NPU 核心数、显示窗口尺寸等，均在文件中按需修改。
 
-| 用途 | 路径 |
-| ---- | ---- |
-| 主程序入口 | `runtime/app/main.cc` |
-| 每帧处理流水线 | `runtime/engine/pipeline.cpp` |
-| 场景协调器 | `runtime/platform/model_coordinator.cpp` |
-| 人脸门控与问候逻辑 | `runtime/platform/llm_greeting.cpp` |
-| RKLLM 插件 | `runtime/adapters/llm/` |
-| TTS 实现 | `runtime/voice/` + `runtime/adapters/melotts/` |
-| 默认配置文件 | `runtime/config/default.yaml` |
+## 文档
 
----
-
-## 🔧 本地检查工具
-
-在推送至板端前，可在仓库根目录运行以下脚本进行预检：
-
-```bash
-# 检查 default.yaml 字段类型与范围（不检查文件存在性）
-python3 tools/check_config.py
-
-# 检查 model/ 下各模型文件是否存在（若缺少 .rkllm 仅给出警告）
-./tools/check_models.sh
-```
+| 文档                                                        | 内容                                         |
+| :---------------------------------------------------------- | :------------------------------------------- |
+| [架构与运行时](docs/architecture-and-runtime.zh.md) | 启动顺序、流水线、槽位、线程模型与完整架构图 |
+| [TTS 实现](docs/tts-melotts.zh.md)                  | MeloTTS 集成细节与验收指南                   |
+| [LLM 协调](docs/llm-model-coordinator.zh.md)        | RKLLM 协调、门控逻辑与终端交互               |
+| [适配器说明](docs/adapters.zh.md)                 | yolo / scrfd / llm / tts 各自职责与代码入口  |
+| [运行排障](docs/troubleshooting.zh.md)                  | 无框、路径错误、退出崩溃等常见问题           |
 
 ## 仓库结构
 
 ```text
-edgeai_platform/
-├── model/          # yolov5.rknn、scrfd.rknn、.rkllm、TTS encoder/decoder RKNN、lexicon.txt、tokens.txt
-├── docs/           # 平台文档
-├── assets/         # 架构图等
+eai-rk3588/
+├── model/                  # yolov5.rknn、scrfd.rknn、.rkllm、TTS encoder/decoder RKNN、lexicon.txt、tokens.txt
+├── docs/                   # 架构与运行时、TTS、LLM 协调、插件角色、排障
+├── assets/                 # 架构图等静态资源
 ├── runtime/
-│   ├── app/ engine/ platform/ capture/ display/
-│   ├── adapters/yolo|scrfd|llm|tts/
-│   └── config/default.yaml
-└── tools/          # 开发/集成辅助（配置校验、模型文件检查等），不参与板端运行
+│   ├── app/                # main 入口与 console UI
+│   ├── engine/             # pipeline、thread_pool
+│   ├── platform/           # model_coordinator、llm_greeting
+│   ├── capture/            # camera_source、frame_transform
+│   ├── display/            # opencv_display_sink、result_overlay
+│   ├── adapters/
+│   │   ├── yolo/           # yolo_adapter、yolo_postprocess
+│   │   ├── scrfd/          # scrfd_adapter、scrfd_postprocess
+│   │   ├── llm/            # rkllm_session、llm_worker
+│   │   └── melotts/        # melotts_engine、melotts_process、melotts_session
+│   ├── voice/              # tts_worker、audio_player、tts_planner、tts_ingress 等
+│   ├── 3rdparty/
+│   │   ├── rknpu2/         # librknnrt.so、头文件
+│   │   ├── rkllm/          # librkllmrt.so、libgomp
+│   │   └── timer/          # 计时工具
+│   ├── utils/              # imageutils、fileutils、imagedrawing、audioutils
+│   ├── config/             # default.yaml
+│   ├── build-linux.sh      # 交叉编译脚本
+│   └── CMakeLists.txt      # RK3588 交叉编译工具链配置
+├── tools/                  # check_config.py、check_models.sh，不参与板端运行
+├── LICENSE
+├── README.md
+└── README.zh.md
 ```
 
-## 📄 License
+## License
 
 MIT License

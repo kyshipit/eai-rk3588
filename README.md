@@ -2,71 +2,53 @@
 
 # EAI-RK3588: Plugin-Based Edge AI Platform
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![OpenCV](https://img.shields.io/badge/OpenCV-green?logo=opencv)
-![Platform](https://img.shields.io/badge/Platform-RK3588-red)
-![YOLO](https://img.shields.io/badge/YOLOv5-111F68?logo=yolo&logoColor=white)
-![TTS](https://img.shields.io/badge/TTS-MeloTTS-blue)
-![SCRFD](https://img.shields.io/badge/SCRFD-FF6F00)
-![RKNN](https://img.shields.io/badge/RKNN-orange)
-![RKLLM](https://img.shields.io/badge/RKLLM-brightgreen)
+EAI-RK3588 is an extensible edge inference platform for Rockchip RK3588 / RK3588S. It is driven by a single YAML configuration file and combines a multi-threaded video pipeline with a plugin-based architecture. Built-in YOLO and SCRFD models, plus local RKLLM dialogue and MeloTTS speech synthesis. The default application demonstrates the complete loop of person detection → face recognition → automatic greeting → voice conversation, with per-frame vision inference decoupled from the LLM/TTS side-path threads so they do not block each other.
 
-EAI-RK3588 is an extensible edge inference platform designed for Rockchip RK3588. Driven by a single YAML configuration file, it combines a multi-threaded video pipeline with a plugin-based architecture. It includes built-in YOLO and SCRFD models, and supports local RKLLM dialogue and speech synthesis (TTS). The default application demonstrates face-gated access, AI greetings, and conversational dialogue.
+Verified on ALIENTEK RK3588 and Firefly LubanCat RK3588 / RK3588S.
 
 <video src="https://github.com/user-attachments/assets/ecccc336-8c3d-47c2-b277-298a9b517630" controls width="100%"></video>
 
----
-## 📋 Table of Contents
+## Board Adaptation
 
-- [✨ Core Features](#-core-features)
-- [🏗️ Architecture](#️-architecture)
-- [🚀 Quick Start](#-quick-start)
-- [⚙️ Configuration](#️-configuration)
-- [📖 Documentation & Code Entry Points](#-documentation--code-entry-points)
-- [🔧 Local Check Tools](#-local-check-tools)
-- [📄 License](#-license)
----
+Inference runs on Rockchip rknpu and is common across the RK3588 / RK3588S series. The code itself does not depend on a specific board. When porting, adjust the items directly related to the code according to the board, including the camera device node, camera model, speaker and toolchain; the rest is common.
 
-## ✨ Core Features
+> The rknpu / MPP / RGA drivers for RK3588 exist only in vendor BSP kernels. Use the official image / BSP kernel from ALIENTEK or LubanCat; a standard mainline kernel does not include these drivers.
 
-- **Plugin-based architecture**: YOLO, SCRFD, LLM, and TTS are all implemented as plugins, loaded on demand.
+| Item | Notes |
+|---|---|
+| Camera device node | Use `ls /dev/video*` to find the actual node on the board, then set `input.source` |
+| Camera model | Tested with MIPI IMX415 and OV8858 |
+| Speaker / audio output | Audio devices may differ between boards; adjust according to the system configuration |
+| Toolchain | Cross toolchain and sysroot differ between vendors; replace the toolchain path and sysroot in `build-linux.sh` |
 
-- **Configuration-driven**: All features (detection, dialogue, speech) can be toggled flexibly via `default.yaml`.
+Verified combinations:
 
-- **Low-latency pipeline**: Video frame processing is decoupled from LLM/TTS logic, ensuring real-time inference performance.
+- ALIENTEK RK3588 + MIPI IMX415
+- Firefly LubanCat RK3588 / RK3588S + MIPI IMX415 / OV8858
 
-- **Ready-to-use face-gated scenario**: Person detection → face recognition → automatic greeting → voice conversation — a complete end-to-end pipeline.
+Other RK3588 / RK3588S boards such as Orange Pi have not been tested; refer to the scripts when porting.
 
-- **Local LLM support**: Integrates RKLLM for on-device conversational inference without network connectivity.
+## Quick Start
 
-- **Cross-compilation support**: Cross-compilation scripts are provided for rapid deployment to ALIENTEK RK3588 boards.
+Make sure the `.rknn` and `.rkllm` model files are placed under `model/`. If `.rkllm` is missing, the application automatically falls back to vision-only mode.
 
-## 🏗️ Architecture
+Run the pre-flight checks from the repository root:
 
-![Edge AI Runtime Architecture](assets/architecture.svg)
+```bash
+python3 tools/check_config.py    # validate YAML field types and ranges
 
-> Solid lines: video frames and inference results; dashed lines: YAML and person/face signals. LLM and TTS are logic side paths (`adapters/llm`, `voice/` + `adapters/melotts`), not part of the per-frame `Preprocess→Inference→Postprocess` pipeline.
+./tools/check_models.sh          # check that model files are in place
+```
 
-| Layer           | Directory                               | Role                                                 |
-| --------------- | --------------------------------------- | ---------------------------------------------------- |
-| Entry           | `runtime/app/`                          | Reads YAML, starts Pipeline and ModelCoordinator     |
-| Capture/Display | `runtime/capture/`, `runtime/display/`  | Frame capture, rotation, overlays, OpenCV preview    |
-| Engine          | `runtime/engine/`                       | Preprocess → Inference → main-thread display & stdin |
-| Policy          | `runtime/platform/`                     | Scene switching, face gate, auto-greeting logic      |
-| Model Plugins   | `runtime/adapters/`                     | yolo / scrfd / llm / tts plugins, toggled by config  |
-
-For detailed startup sequence, threading model, and design decisions, see: [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md).
-
-## 🚀 Quick Start
-
+Then enter runtime/ to build and deploy:
 ```bash
 # 1. Enter the runtime directory
 cd runtime
 
-# 2. Run the cross-compilation script (using ALIENTEK toolchain)
+# 2. Run the cross-compilation script (uses the ALIENTEK toolchain)
 ./build-linux.sh
 
-# 3. Push the build artifact to the board (replace <target_directory> with the board path, e.g. /userdata)
+# 3. Push the build output to the board (to /userdata/aidemo; adjust the path as needed)
 adb push install/rk3588_linux_aarch64/rknn_eai_rk3588 /userdata/aidemo
 
 # 4. Enter the board directory and run
@@ -74,77 +56,70 @@ cd /userdata/aidemo/rknn_eai_rk3588
 ./edgeai_app
 ```
 
-## ⚙️ Configuration
+The commands above use the ALIENTEK toolchain. For LubanCat or other RK3588 / RK3588S boards, adjust the toolchain path, camera node and speaker as described in the previous section; the remaining steps are unchanged.
 
-Key configuration items (located in `config/default.yaml`):
+## Architecture
 
-| Config Item | Description |
-| ----------- | ----------- |
-| `model.llm.enabled` | Enable LLM dialogue pipeline; if `false` or model missing, vision-only mode |
-| `model.tts.enabled` | Enable TTS speech output (requires `model.llm.enabled` to be `true`) |
-| `model.tts.skip_static_greeting` | When `true`, skip the static greeting TTS after face stabilization |
-| `model.yolo.path` | Path to YOLO model file (relative to executable) |
-| `model.scrfd.path` | Path to SCRFD face detection model |
-| `model.llm.path` | Path to RKLLM model file |
-| `model.tts.encoder_path` / `decoder_path` | TTS encoder/decoder RKNN paths |
-| `model.tts.lexicon_path` / `tokens_path` | TTS lexicon file paths |
-| `capture.device` | Camera device node (e.g., `/dev/video0`) |
-| `display.window_name` | Preview window title |
+![Edge AI Runtime Architecture](assets/architecture.svg)
 
-For the full list of fields and comments, see `runtime/config/default.yaml`.
+Solid lines are video frames and inference results; dashed lines are YAML and person/face signals. LLM and TTS run as independent side-path threads and do not participate in the per-frame Preprocess → Inference → Postprocess pipeline. See [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md) for startup order, threading model and slot design.
 
----
+## Configuration
 
-## 📖 Documentation & Code Entry Points
+All configuration lives in `runtime/config/default.yaml`. Every field has a Chinese comment and value range above it; changes take effect on save without recompilation. For deployment, usually only the following need to be changed:
 
-| Document | Description |
-| -------- | ----------- |
-| [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md) | Startup sequence, pipeline, slots, and platform design details |
-| [docs/tts-melotts.md](docs/tts-melotts.md) | TTS implementation details and acceptance guide |
-| [docs/llm-model-coordinator.md](docs/llm-model-coordinator.md) | RKLLM coordination, gating logic, and terminal interaction UX |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Troubleshooting common issues (no boxes, path errors, exit/crash, etc.) |
-| [docs/adapters.md](docs/adapters.md) | File roles for each plugin module (yolo/scrfd/llm/tts) |
+| Field              | Default                                  | Notes                                              |
+| :----------------- | :--------------------------------------- | :------------------------------------------------- |
+| `input.source`     | `/dev/video-camera0`                     | Camera device node; required when switching boards |
+| `model.yolo.path`  | `./model/yolov5.rknn`                    | YOLO model path                                    |
+| `model.scrfd.path` | `./model/scrfd.rknn`                     | SCRFD model path                                   |
+| `model.llm.path`   | `./model/qwen2.5-1.5b_W8A8_RK3588.rkllm` | RKLLM model path                                   |
 
-**Code Entry Points**:
+The TTS encoder, decoder and lexicon/tokens paths default to files under `./model/`; change the corresponding `*_path` fields when swapping TTS models. Other parameters, including face-stable frame count, greeting text, TTS speed and sentence-splitting strategy, NPU core count and display window size, can be adjusted in the file as needed.
 
-| Purpose | Path |
-| ------- | ---- |
-| Main entry point | `runtime/app/main.cc` |
-| Per-frame pipeline | `runtime/engine/pipeline.cpp` |
-| Scene coordinator | `runtime/platform/model_coordinator.cpp` |
-| Face gate & greeting logic | `runtime/platform/llm_greeting.cpp` |
-| RKLLM plugin | `runtime/adapters/llm/` |
-| TTS implementation | `runtime/voice/` + `runtime/adapters/melotts/` |
-| Default configuration | `runtime/config/default.yaml` |
+## Documentation
 
----
-
-## 🔧 Local Check Tools
-
-Before pushing to the board, run the following scripts from the repository root for pre-flight checks:
-
-```bash
-# Validate default.yaml field types and ranges (does not check file existence)
-python3 tools/check_config.py
-
-# Check if model files under model/ exist (missing .rkllm only triggers a warning)
-./tools/check_models.sh
-```
+| Document                                                     | Contents                                                     |
+| :----------------------------------------------------------- | :----------------------------------------------------------- |
+| [Architecture and Runtime](docs/architecture-and-runtime.md) | Startup order, pipeline, slots, threading model and full architecture diagram |
+| [TTS Implementation](docs/tts-melotts.md)            | MeloTTS integration details and acceptance guide             |
+| [LLM Coordination](docs/llm-model-coordinator.md)    | RKLLM coordination, gating logic and terminal interaction    |
+| [Adapter Roles](docs/adapters.md)                    | Responsibilities and code entry points for yolo / scrfd / llm / tts |
+| [Troubleshooting](docs/troubleshooting.md)           | No boxes, path errors, exit crashes and other common issues  |
 
 ## Repository Structure
 
 ```text
-edgeai_platform/
-├── model/          # yolov5.rknn, scrfd.rknn, .rkllm, TTS encoder/decoder RKNN, lexicon.txt, tokens.txt
-├── docs/           # platform documentation
-├── assets/         # architecture diagrams, etc.
+eai-rk3588/
+├── model/                  # yolov5.rknn, scrfd.rknn, .rkllm, TTS encoder/decoder RKNN, lexicon.txt, tokens.txt
+├── docs/                   # architecture & runtime, TTS, LLM coordination, adapter roles, troubleshooting
+├── assets/                 # architecture diagrams and other static assets
 ├── runtime/
-│   ├── app/ engine/ platform/ capture/ display/
-│   ├── adapters/yolo|scrfd|llm|tts/
-│   └── config/default.yaml
-└── tools/          # dev/integration helpers (config & model checks, etc.), not used on board
+│   ├── app/                # main entry and console UI
+│   ├── engine/             # pipeline, thread_pool
+│   ├── platform/           # model_coordinator, llm_greeting
+│   ├── capture/            # camera_source, frame_transform
+│   ├── display/            # opencv_display_sink, result_overlay
+│   ├── adapters/
+│   │   ├── yolo/           # yolo_adapter, yolo_postprocess
+│   │   ├── scrfd/          # scrfd_adapter, scrfd_postprocess
+│   │   ├── llm/            # rkllm_session, llm_worker
+│   │   └── melotts/        # melotts_engine, melotts_process, melotts_session
+│   ├── voice/              # tts_worker, audio_player, tts_planner, tts_ingress, etc.
+│   ├── 3rdparty/
+│   │   ├── rknpu2/         # librknnrt.so, headers
+│   │   ├── rkllm/          # librkllmrt.so, libgomp
+│   │   └── timer/          # timing utilities
+│   ├── utils/              # imageutils, fileutils, imagedrawing, audioutils
+│   ├── config/             # default.yaml
+│   ├── build-linux.sh      # cross-compilation script
+│   └── CMakeLists.txt      # RK3588 cross toolchain configuration
+├── tools/                  # check_config.py, check_models.sh; not used on the board
+├── LICENSE
+├── README.md
+└── README.zh.md
 ```
 
-## 📄 License
+## License
 
 MIT License
