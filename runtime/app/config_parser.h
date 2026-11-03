@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+// SPDX-FileCopyrightText: 2026 kyshipit
 
 /*
  * app/config_parser.h（header-only）配置解析器

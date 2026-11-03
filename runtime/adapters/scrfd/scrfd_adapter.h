@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+// SPDX-FileCopyrightText: 2026 kyshipit
 
 /*
  * adapters/scrfd/scrfd_adapter.h — SCRFD 人脸检测 RKNN 适配器

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+// SPDX-FileCopyrightText: 2026 kyshipit
 
 /*
  * voice/tts_text_sanitizer.h — 播报前文本截断（thinking 由 TtsIngress 过滤）。

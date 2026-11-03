@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+// SPDX-FileCopyrightText: 2026 kyshipit
 
 /*
  * platform/model_coordinator.cpp — yolo + scrfd 多槽

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 KY (kyshipit)
+// SPDX-FileCopyrightText: 2026 kyshipit
 
 /*
  * adapters/llm/llm_worker.h — RKLLM 常驻适配器：InitOnce + 按需 SubmitPrompt。
